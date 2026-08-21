@@ -5,7 +5,7 @@ name = "structure"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
-description = "The structure framework's routing half: the route table, the walk, the outbox"
+description = "The structure framework: the route table, the walk, the outbox, and schema reflection"
 license = "MIT"
 publish = false
 

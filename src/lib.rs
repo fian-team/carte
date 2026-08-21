@@ -16,17 +16,28 @@
 //! (P2) and the driver (P4); the [`Node`] seam below is the bridge that
 //! lets the walk live here in the meantime.
 //!
+//! The store's half begins in [`schema`]: §4.3's derived reflection, the
+//! vocabulary a scope's schema struct describes itself in and the thing a
+//! document's selection validates against. It is here rather than in the
+//! surface framework for the same reason the table is — a schema is a fact
+//! about what exists, and the document that selects from one is a consumer.
+//!
 //! `lorekeeper/docs/ROUTING.md` remains the record of the routing axioms
 //! cited throughout; `APPLICATION.md` is the record of the split.
 
 pub mod guard;
 pub mod outbox;
 pub mod router;
+pub mod schema;
 pub mod table;
 
 pub use guard::{Guard, Refusal, Store};
 pub use outbox::Outbox;
 pub use router::{EscapeOutcome, Node, Router};
+pub use schema::{
+    reflect_of, Difference, Field, Grain, Initial, Kind, Lit, Mismatch, ParseError, Presence,
+    Schema, Variant,
+};
 pub use table::{RouteTable, TableError, Tier};
 
 /// A route's id: the name a table registers and a `screen` block declares.

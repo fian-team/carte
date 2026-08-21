@@ -24,6 +24,19 @@
 //! [`Drift::refuses`] draws on the write side — this module carries the
 //! write side's grades through unchanged rather than re-deciding them.
 //!
+//! # Depth, and the honest silence
+//!
+//! A selection names `hud`; the helpers read `hud.clock`. Only the second
+//! can be wrong about a field, so [`Validation::reads`] resolves each
+//! dotted read through the provider's reflection and refuses the ones that
+//! reach nothing ([`Finding::Unreached`]). What it refuses is exactly what
+//! it can *see*: a read that steps into a list, a map, a union or a
+//! back-edge stops being resolvable there (§4.2 — a collection is one
+//! field in v1), and a read through a helper's parameter or a computed key
+//! was never visible at all. Both are **silent** — not a third grade, not
+//! a report. A refusal a correct document cannot avoid is a check that
+//! gets switched off, which costs more than the gap it closed.
+//!
 //! # The unread direction
 //!
 //! "Provided, but read by nothing" is a question about the *whole shipped
@@ -47,7 +60,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::intent::{Declared, Drift};
-use crate::schema::{Field, Kind, Mismatch};
+use crate::schema::{Difference, Field, Kind, Mismatch};
 use crate::store::{Scope, Store};
 
 // --- what a check found ----------------------------------------------------
@@ -115,6 +128,31 @@ pub enum Finding {
     /// vocabulary. **Refuses**: the mapping itself is wrong, and every
     /// selection against it would be refused for the wrong reason.
     Unpublished { scope: Scope },
+    /// The document reads a path *through* a name a scope provides, and
+    /// the shape it provides has no field where the path goes.
+    /// **Refuses** — this is [`Unprovided`](Finding::Unprovided) one level
+    /// down, and it exists because a selection carries names only (§4.6):
+    /// with a `host_state {}` block a provider's rename was caught by
+    /// comparing two copies of the shape, and a selection has no second
+    /// copy. Without this, `hud.clock` against a `Hud` that lost `clock`
+    /// reads `Void` and nothing says so — a false expectation, which is
+    /// the one outcome §4.1 promises never to produce.
+    ///
+    /// Only a read that resolves *to a leaf* can be graded. A path that
+    /// steps into a list, a map, a union or a back-edge is not checkable
+    /// (§4.2: a collection is one field in v1), and a computed or
+    /// through-a-parameter read is not visible at all; both are silent
+    /// rather than reported, because a false refusal is worse than the
+    /// gap being closed.
+    Unreached {
+        document: String,
+        /// The path as the document wrote it — `hud.clock`.
+        path: String,
+        scope: Scope,
+        /// The dotted path down to the field that is not there, which is
+        /// what §4.1 asks a refusal to name.
+        field: String,
+    },
     /// The document selects from a scope it does not mount under
     /// (§4.6). **Refuses** — it is the modder's stale expectation one
     /// level up from a missing field, and every field under it would
@@ -136,6 +174,7 @@ impl Finding {
         match self {
             Finding::Unprovided { .. }
             | Finding::Shape { .. }
+            | Finding::Unreached { .. }
             | Finding::Unaccepted { .. }
             | Finding::Unpublished { .. }
             | Finding::Unmounted { .. } => true,
@@ -156,6 +195,7 @@ impl Finding {
             Finding::Unprovided { document, .. }
             | Finding::Shape { document, .. }
             | Finding::Shadowed { document, .. }
+            | Finding::Unreached { document, .. }
             | Finding::Unaccepted { document, .. }
             | Finding::Raise { document, .. }
             | Finding::Undrawn { document, .. }
@@ -192,6 +232,15 @@ impl fmt::Display for Finding {
                 f,
                 "`{document}` selects `{field}`, which {scope} provides and {by} provides too; \
                  the nearer one wins, and nothing in the document says which was meant"
+            ),
+            Finding::Unreached {
+                document,
+                path,
+                scope,
+                field,
+            } => write!(
+                f,
+                "`{document}` reads `{path}`, and what {scope} provides has no `{field}`"
             ),
             Finding::Unread { scope, field } => write!(
                 f,
@@ -459,6 +508,61 @@ impl<'a> Validation<'a> {
             // separately subscribable, so nothing below it can be unread.
             let root = wanted_name.split('.').next().unwrap_or(wanted_name);
             self.read.insert((scope, root.to_string()));
+        }
+    }
+
+    /// Check the paths a document reads *through* the names a selection
+    /// bound — §4.1's guarantee at leaf depth.
+    ///
+    /// [`selects_named`](Self::selects_named) answers "is `hud` provided?"
+    /// and stops, because that is all a selection says. This answers "and
+    /// is there a `clock` on it?", which is the question a `host_state {}`
+    /// block used to answer by restating the shape. `paths` are dotted
+    /// reads off names *this* selection bound, nearest-first over the same
+    /// scopes, so a read and the selection that bound it can never
+    /// disagree about which provider was meant.
+    ///
+    /// Three outcomes, and two of them are silence:
+    ///
+    /// - the path resolves to a leaf — nothing to say;
+    /// - the path resolves as far as a list, a map, a union or a
+    ///   back-edge and stops there — **silent**, because §4.2 makes a
+    ///   collection one field and what is inside one is not checkable;
+    /// - the path names a field the shape does not have — **refuses**,
+    ///   naming it.
+    ///
+    /// A root no scope provides is silent too: the selection that bound
+    /// it has already refused, named, and a second complaint about the
+    /// same name would bury the first.
+    pub fn reads(&mut self, document: &str, scopes: &[Scope], paths: &[String]) {
+        for path in paths {
+            let Some((root, _)) = path.split_once('.') else {
+                continue;
+            };
+            let provider = scopes.iter().copied().find(|scope| {
+                self.store
+                    .reflection(*scope)
+                    .is_some_and(|kind| kind.field_at(root).is_ok())
+            });
+            let Some(scope) = provider else { continue };
+            let Some(reflection) = self.store.reflection(scope) else {
+                continue;
+            };
+            let Err(at) = reflection.field_at(path) else {
+                continue;
+            };
+            if *at.difference() != Difference::Missing {
+                // The path left the records — §4.2's collection, a union's
+                // live variant, a back-edge. Not checkable to the leaf,
+                // and saying so anyway would refuse correct documents.
+                continue;
+            }
+            self.findings.push(Finding::Unreached {
+                document: document.to_string(),
+                path: path.clone(),
+                scope,
+                field: at.field().to_string(),
+            });
         }
     }
 

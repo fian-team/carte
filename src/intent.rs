@@ -167,30 +167,7 @@ impl Vocabulary {
     pub fn check(&self, declared: &[Declared]) -> Vec<Drift> {
         let mut drifts = Vec::new();
         for raised in declared {
-            let Some(accepted) = self.intent(&raised.name) else {
-                drifts.push(Drift::Unaccepted {
-                    intent: raised.name.clone(),
-                });
-                continue;
-            };
-            if accepted.parameters.len() != raised.parameters.len() {
-                drifts.push(Drift::Arity {
-                    intent: raised.name.clone(),
-                    want: accepted.parameters.len(),
-                    got: raised.parameters.len(),
-                });
-                continue;
-            }
-            for (want, got) in accepted.parameters.iter().zip(&raised.parameters) {
-                if want.kind != *got {
-                    drifts.push(Drift::Parameter {
-                        intent: raised.name.clone(),
-                        parameter: want.name.clone(),
-                        want: want.kind.name(),
-                        got: got.name(),
-                    });
-                }
-            }
+            drifts.extend(self.check_one(raised));
         }
         for accepted in &self.intents {
             if !declared.iter().any(|d| d.name == accepted.name) {
@@ -200,6 +177,44 @@ impl Vocabulary {
             }
         }
         drifts
+    }
+
+    /// One raise, checked against this vocabulary — every grade except
+    /// [`Drift::Unraised`].
+    ///
+    /// That one is left out because it is not a question about a raise at
+    /// all: an intent is unraised only if *no* shipped document raises it,
+    /// which is a question about the whole set (`APPLICATION.md` §4.1's
+    /// second grade). [`check`](Vocabulary::check) is this in a loop plus
+    /// that question answered for one document;
+    /// [`Validation`](crate::Validation) is it answered across several,
+    /// where a document may mount under more than one scope and only one of
+    /// them accepts a given name.
+    pub fn check_one(&self, raised: &Declared) -> Vec<Drift> {
+        let Some(accepted) = self.intent(&raised.name) else {
+            return vec![Drift::Unaccepted {
+                intent: raised.name.clone(),
+            }];
+        };
+        if accepted.parameters.len() != raised.parameters.len() {
+            return vec![Drift::Arity {
+                intent: raised.name.clone(),
+                want: accepted.parameters.len(),
+                got: raised.parameters.len(),
+            }];
+        }
+        accepted
+            .parameters
+            .iter()
+            .zip(&raised.parameters)
+            .filter(|(want, got)| want.kind != **got)
+            .map(|(want, got)| Drift::Parameter {
+                intent: raised.name.clone(),
+                parameter: want.name.clone(),
+                want: want.kind.name(),
+                got: got.name(),
+            })
+            .collect()
     }
 }
 

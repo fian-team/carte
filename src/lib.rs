@@ -32,6 +32,13 @@
 //! and a raise validated against that vocabulary lands on the [`Outbox`] as
 //! a typed action, ahead of the producers in the same tick.
 //!
+//! [`validate`] is where the two directions are put side by side and graded
+//! (§4.1): a selection naming a field nothing provides refuses, and coverage
+//! drift — a screen no node reaches, a field or an intent no shipped
+//! document uses — reports. It reads no files; the harness that walks a
+//! repo's shipped documents at `cargo test` time lives on the surface side
+//! of the seam, where the parser does.
+//!
 //! `lorekeeper/docs/ROUTING.md` remains the record of the routing axioms
 //! cited throughout; `APPLICATION.md` is the record of the split.
 
@@ -42,6 +49,7 @@ pub mod router;
 pub mod schema;
 pub mod store;
 pub mod table;
+pub mod validate;
 
 pub use guard::{Guard, Refusal};
 pub use intent::{
@@ -57,6 +65,7 @@ pub use store::{
     SubscriberId, Writer,
 };
 pub use table::{RouteTable, TableError, Tier};
+pub use validate::{Finding, Findings, Validation};
 
 /// Set a scope field by name, with no way for the name and the field to
 /// drift apart.

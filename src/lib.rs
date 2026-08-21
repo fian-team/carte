@@ -16,11 +16,16 @@
 //! (P2) and the driver (P4); the [`Node`] seam below is the bridge that
 //! lets the walk live here in the meantime.
 //!
-//! The store's half begins in [`schema`]: §4.3's derived reflection, the
-//! vocabulary a scope's schema struct describes itself in and the thing a
-//! document's selection validates against. It is here rather than in the
-//! surface framework for the same reason the table is — a schema is a fact
-//! about what exists, and the document that selects from one is a consumer.
+//! The store is the other half, and the two are one framework rather than
+//! two: [`schema`] is §4.3's derived reflection — the vocabulary a scope's
+//! schema struct describes itself in, and the thing a document's selection
+//! validates against — and [`store`] is §5, the scoped facts themselves,
+//! their frame barrier and their two consumption verbs. Both are here
+//! rather than in the surface framework for the same reason the table is: a
+//! schema is a fact about what exists, and the document that selects from
+//! one is a consumer. The two halves meet twice — a node's scope lives
+//! exactly as long as the node is on the path, and a node's guard (§3.4) is
+//! an ordinary Rust function over the store.
 //!
 //! `lorekeeper/docs/ROUTING.md` remains the record of the routing axioms
 //! cited throughout; `APPLICATION.md` is the record of the split.
@@ -29,15 +34,50 @@ pub mod guard;
 pub mod outbox;
 pub mod router;
 pub mod schema;
+pub mod store;
 pub mod table;
 
-pub use guard::{Guard, Refusal, Store};
+pub use guard::{Guard, Refusal};
 pub use outbox::Outbox;
 pub use router::{EscapeOutcome, Node, Router};
 pub use schema::{
     reflect_of, Difference, Field, Grain, Initial, Kind, Lit, Mismatch, Presence, Schema, Variant,
 };
+pub use store::{
+    Barrier, Changed, Grained, Notice, Producer, Scope, ScopeSchema, Store, StoreError,
+    SubscriberId, Writer,
+};
 pub use table::{RouteTable, TableError, Tier};
+
+/// Set a scope field by name, with no way for the name and the field to
+/// drift apart.
+///
+/// `set!(writer, clock, now)` expands to
+/// `writer.set("clock", |scope| &mut scope.clock, now)`: the schema's name
+/// and the struct's field come from **one token**, so the failure where a
+/// producer sets one field under another's name — waking the wrong
+/// subscribers, with nothing at startup able to see it — cannot be
+/// written. Use [`Writer::set`](crate::Writer::set) directly only for a
+/// name no Rust identifier can spell.
+///
+/// A scope's fields are its *top-level* ones: a nested record is one field
+/// and moves as a whole, which is §4.2's named coarseness and the reason
+/// celia's `LobbyView` flattens rather than nests.
+#[macro_export]
+macro_rules! set {
+    ($writer:expr, $field:ident, $value:expr) => {
+        $writer.set(::std::stringify!($field), |scope| &mut scope.$field, $value)
+    };
+}
+
+/// [`set!`](crate::set) for a numeric field, floored to the grain its
+/// schema declares (§5.5).
+#[macro_export]
+macro_rules! set_num {
+    ($writer:expr, $field:ident, $value:expr) => {
+        $writer.set_num(::std::stringify!($field), |scope| &mut scope.$field, $value)
+    };
+}
 
 /// A route's id: the name a table registers and a `screen` block declares.
 ///

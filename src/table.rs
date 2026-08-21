@@ -746,7 +746,7 @@ mod tests {
         t.validate().expect("this table is well formed");
         assert!(t.guard_of("lobby").is_none(), "an unguarded door is open");
         let guard = t.guard_of("arena").expect("registered with its node");
-        let refusal = guard(&Store::placeholder()).unwrap_err();
+        let refusal = guard(&Store::new()).unwrap_err();
         assert_eq!(refusal.sentence(), "Needs two more players.");
         assert_eq!(
             refusal.to_string(),

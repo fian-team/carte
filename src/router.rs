@@ -22,6 +22,24 @@
 //! disturb the transaction the map editor is holding, so the editor's
 //! `leave` does not run when its own exit prompt appears above it.
 //!
+//! # The store, and the guarded door
+//!
+//! The walk is where two of §5's sentences are enforced rather than
+//! remembered. **Scope lifetime is node presence on the path** (§5): the
+//! id that joins the path mounts its scope at the declared at-mount value,
+//! and the id that leaves drops it, so state that outlived its screen is
+//! not a bug to fix but a thing to write. And **a node guards its own
+//! door** (§3.4): before the walk descends onto a child it asks that
+//! child's guard, over committed store state, and a refusal stops the
+//! descent — ask-then-mount, with the sentence kept for whoever surfaces
+//! it. [`Router::ask`] is the same evaluation offered ahead of time, for
+//! the panel row that grays itself.
+//!
+//! The router holds the store for now. The binding owns it after P4
+//! (`APPLICATION_BUILD.md` WP-4.1); until then this is where the walk and
+//! the facts can see each other, and a host reaches it through
+//! [`Router::store_mut`].
+//!
 //! # The [`Node`] seam
 //!
 //! The router is generic over what it routes: `R` is any (possibly
@@ -35,8 +53,9 @@
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
+use crate::store::Store;
 use crate::table::{RouteTable, TableError};
-use crate::{Departure, Escape, Occlusion, Outbox, RouteId};
+use crate::{Departure, Escape, Occlusion, Outbox, Refusal, RouteId};
 
 /// The walk-facing surface of a routed node: everything the router core
 /// needs from a route, and nothing that names a surface type.
@@ -122,6 +141,16 @@ pub struct Router<Cx, A, R: ?Sized> {
     /// Set when the last `resolve` changed the path, so a host can drive
     /// a transition without diffing the path itself.
     last_departure: Option<(RouteId, Departure)>,
+    /// §5's facts, and the thing every guard is handed. Scaffolding in the
+    /// same sense as the [`Node`] bridge: the binding owns the one store
+    /// after P4, and it lives here in the meantime because the walk is
+    /// what mounts and drops scopes.
+    store: Store,
+    /// The door the last walk asked at and was refused (§3.4). Re-derived
+    /// every walk, never remembered — a refusal is a reading of the facts
+    /// right now, and a stale one is exactly the shadow rooms table this
+    /// replaces.
+    refused: Option<(RouteId, Refusal)>,
     /// `A` appears only through [`Node`]'s methods, not in any field.
     _actions: PhantomData<fn(A)>,
 }
@@ -155,6 +184,8 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
                 });
             }
         }
+        let mut store = Store::new();
+        store.knows_nodes(table.ids());
         Ok(Self {
             table,
             routes: map,
@@ -162,12 +193,48 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             path: Vec::new(),
             reported: BTreeMap::new(),
             last_departure: None,
+            store,
+            refused: None,
             _actions: PhantomData,
         })
     }
 
     pub fn table(&self) -> &RouteTable {
         &self.table
+    }
+
+    /// The application's facts (`APPLICATION.md` §5). What a consumer
+    /// reads and subscribes through.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// The store, to provide scopes and claim producer fields at startup —
+    /// and to [`tick`](Store::tick) it, which is the frame barrier.
+    ///
+    /// Mounting is *not* reachable through this: a scope begins when its
+    /// node joins the path and ends when it leaves, and the walk is the
+    /// only caller of either.
+    pub fn store_mut(&mut self) -> &mut Store {
+        &mut self.store
+    }
+
+    /// Ask whether a node's door would open, without going there (§3.4).
+    ///
+    /// The panel row that grays itself and the walk that declines to
+    /// descend call the same function over the same facts, so the sentence
+    /// a player reads is the sentence that stopped them. An unguarded door
+    /// is open.
+    pub fn ask(&self, id: RouteId) -> Result<(), Refusal> {
+        match self.table.guard_of(id) {
+            Some(guard) => guard(&self.store),
+            None => Ok(()),
+        }
+    }
+
+    /// The door the last walk was refused at, if it was refused at one.
+    pub fn refused(&self) -> Option<(RouteId, &Refusal)> {
+        self.refused.as_ref().map(|(id, why)| (*id, why))
     }
 
     /// The active path, outermost first.
@@ -229,12 +296,23 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             self.last_departure = None;
         }
 
-        for id in departing.into_iter().rev() {
+        for id in departing.iter().rev().copied() {
             if let Some(route) = self.routes.get_mut(id) {
                 route.leave(cx);
             }
         }
+        // After `leave`, because a node releasing its hold on the world may
+        // want to read the facts it was standing on one last time; before
+        // the path moves, because from here on the scope is gone.
+        for id in departing {
+            self.store.unmount(id);
+        }
         self.path = next;
+        // Before `enter`, so a node that reacts to arriving finds its scope
+        // already standing at the at-mount value its schema declared.
+        for id in &arriving {
+            self.store.mount(id);
+        }
         for id in arriving {
             if let Some(route) = self.routes.get_mut(id) {
                 route.enter(cx);
@@ -251,6 +329,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
     /// Derive the path without touching lifecycle. Split out so `resolve`
     /// can diff against the current path before running anything.
     fn walk(&mut self, cx: &Cx) -> Vec<RouteId> {
+        self.refused = None;
         let mut path = Vec::new();
         let mut id = (self.root)(cx);
         loop {
@@ -275,6 +354,18 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             if !self.table.is_child_of(child, id) {
                 self.report_once(child, id);
                 break;
+            }
+            // Ask-then-mount (§3.4). The guard rules on the *child*, over
+            // committed facts, and a refusal simply ends the walk here —
+            // the parent keeps the frame, and the sentence is kept for
+            // whoever surfaces it. A root is not asked: the lifecycle put
+            // it there and only the lifecycle can take it away, which is
+            // the same argument [`pop_at`](Self::pop_at) makes.
+            if let Some(guard) = self.table.guard_of(child) {
+                if let Err(refusal) = guard(&self.store) {
+                    self.refused = Some((child, refusal));
+                    break;
+                }
             }
             id = child;
         }
@@ -409,7 +500,13 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     use super::*;
+    use crate::schema::{Field, Kind, Schema};
+    use crate::set;
+    use crate::store::{Producer, Scope};
 
     /// A node that claims a fixed child and reports a fixed occlusion,
     /// so a test can make the table and the method disagree on purpose.
@@ -487,5 +584,258 @@ mod tests {
         let mut r = prompt_router(false);
         r.resolve(&mut ());
         assert_eq!(r.visible_views(), vec!["prompt"]);
+    }
+
+    // --- the store on the walk (WP-2.2) ------------------------------------
+
+    /// celia's session scope: the facts that outlive both instance roots.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct Session {
+        seats: i64,
+    }
+
+    impl Schema for Session {
+        fn reflect() -> Kind {
+            Kind::Record(vec![Field::new("seats", Kind::Int)])
+        }
+        fn type_name() -> Option<&'static str> {
+            Some("Session")
+        }
+    }
+
+    /// A view scope that says when it is dropped, so "the state died with
+    /// its node" is witnessed rather than inferred from an absent read.
+    /// `alive` is not a field of the schema — a reflection is a
+    /// declaration of the facts a scope provides, not a mirror of every
+    /// Rust field the provider's type happens to carry.
+    #[derive(Debug)]
+    struct Watched {
+        pane: String,
+        alive: Arc<AtomicUsize>,
+    }
+
+    impl Clone for Watched {
+        fn clone(&self) -> Self {
+            self.alive.fetch_add(1, Ordering::SeqCst);
+            Self {
+                pane: self.pane.clone(),
+                alive: Arc::clone(&self.alive),
+            }
+        }
+    }
+
+    impl Drop for Watched {
+        fn drop(&mut self) {
+            self.alive.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl Schema for Watched {
+        fn reflect() -> Kind {
+            Kind::Record(vec![Field::new("pane", Kind::Str)])
+        }
+        fn type_name() -> Option<&'static str> {
+            Some("Watched")
+        }
+    }
+
+    /// The celia shape: a structural session over a lobby that claims the
+    /// arena. `claims` is what the lobby's `resolve_child` answers.
+    fn celia_router(claims_arena: bool) -> Router<(), (), Fixed> {
+        let mut t = RouteTable::new();
+        t.at_root("session")
+            .under("lobby", "session")
+            .under("arena", "lobby");
+        t.structural("session")
+            .mounts("lobby", "data/ui/lobby.ogh")
+            .mounts("arena", "data/ui/arena.ogh");
+        t.guard("arena", needs_two_players);
+        let node = |child: Option<RouteId>| {
+            Box::new(Fixed {
+                child,
+                occludes: Occlusion::View,
+            })
+        };
+        Router::new(
+            t,
+            vec![
+                ("session", node(Some("lobby"))),
+                ("lobby", node(claims_arena.then_some("arena"))),
+                ("arena", node(None)),
+            ],
+            |_| "session",
+        )
+        .expect("this table is well formed")
+    }
+
+    /// §3.4, as a game writes one: an ordinary Rust function over the
+    /// store's facts, with the sentence authored once.
+    fn needs_two_players(store: &Store) -> Result<(), Refusal> {
+        let seated = store
+            .read::<Session>(Scope::Node("session"))
+            .map(|s| s.seats)
+            .unwrap_or(0);
+        match seated >= 2 {
+            true => Ok(()),
+            false => Err(Refusal::new("Needs two more players.")),
+        }
+    }
+
+    /// **A scope dies with its node.** The lobby's scope stands while the
+    /// lobby is on the path and is gone the frame it leaves — read as
+    /// absent, dropped for real (the witness counts), and starting again
+    /// from the declared at-mount value when the node comes back. This is
+    /// what makes half of regency's `teardown` unwritable.
+    #[test]
+    fn a_scope_dies_with_its_node_and_comes_back_at_mount() {
+        let alive = Arc::new(AtomicUsize::new(1));
+        let mut r = celia_router(true);
+        r.store_mut()
+            .provides(
+                Scope::Node("arena"),
+                Watched {
+                    pane: String::new(),
+                    alive: Arc::clone(&alive),
+                },
+            )
+            .expect("`arena` is a registered node");
+        let pane = r
+            .store_mut()
+            .producer::<Watched>(Scope::Node("arena"), &["pane"])
+            .unwrap();
+        // The arena's door is open once the seats are filled.
+        let seats = session_of(&mut r);
+        set_seats(&mut r, &seats, 2);
+
+        r.resolve(&mut ());
+        assert_eq!(r.path(), vec!["session", "lobby", "arena"]);
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            3,
+            "the template and two copies"
+        );
+        r.store_mut().tick(&mut Outbox::<()>::new(), |_, b| {
+            let mut w = b.writer(&pane).unwrap();
+            set!(w, pane, "tohri".to_string()).unwrap();
+        });
+        assert_eq!(
+            r.store()
+                .read::<Watched>(Scope::Node("arena"))
+                .unwrap()
+                .pane,
+            "tohri"
+        );
+
+        // The lobby stops claiming the arena: the node leaves the path.
+        r.get_mut("lobby").unwrap().child = None;
+        r.resolve(&mut ());
+        assert_eq!(r.path(), vec!["session", "lobby"]);
+        assert!(r.store().read::<Watched>(Scope::Node("arena")).is_none());
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            1,
+            "only the at-mount template is left holding it"
+        );
+
+        // And back. What it holds is the at-mount value, because there was
+        // nowhere for the old one to have been kept.
+        r.get_mut("lobby").unwrap().child = Some("arena");
+        r.resolve(&mut ());
+        assert_eq!(
+            r.store()
+                .read::<Watched>(Scope::Node("arena"))
+                .unwrap()
+                .pane,
+            "",
+            "a scope that came back is a new scope"
+        );
+    }
+
+    /// **A node guards its own door** (§3.4). The lobby claims the arena
+    /// every frame; the guard rules on the facts, and while it refuses the
+    /// walk simply stops at the lobby — with the authored sentence kept for
+    /// whoever surfaces it.
+    #[test]
+    fn a_guarded_door_refuses_the_walk_and_keeps_its_sentence() {
+        let mut r = celia_router(true);
+        let seats = session_of(&mut r);
+
+        assert_eq!(r.path(), vec!["session", "lobby"], "the door stayed shut");
+        let (id, why) = r.refused().expect("the walk was refused at one");
+        assert_eq!(id, "arena");
+        assert_eq!(why.sentence(), "Needs two more players.");
+
+        set_seats(&mut r, &seats, 2);
+        r.resolve(&mut ());
+        assert_eq!(r.path(), vec!["session", "lobby", "arena"]);
+        assert!(r.refused().is_none(), "a refusal is never remembered");
+    }
+
+    /// The panel row that grays and the walk that declines read the same
+    /// sentence, because they call the same function (§3.4's "written once,
+    /// read everywhere").
+    #[test]
+    fn ask_answers_what_the_walk_would_have_been_refused_with() {
+        let mut r = celia_router(false);
+        let seats = session_of(&mut r);
+
+        // Nobody is walking towards the arena, and the row still knows.
+        assert_eq!(
+            r.ask("arena").unwrap_err().sentence(),
+            "Needs two more players."
+        );
+        assert!(r.ask("lobby").is_ok(), "an unguarded door is open");
+
+        set_seats(&mut r, &seats, 2);
+        assert!(r.ask("arena").is_ok());
+    }
+
+    /// A guard is a reading of the facts *right now*: it re-runs every
+    /// walk, so a door that opened stays open only while the reason does.
+    #[test]
+    fn a_door_that_opened_shuts_again_when_its_reason_goes() {
+        let mut r = celia_router(true);
+        let seats = session_of(&mut r);
+        set_seats(&mut r, &seats, 2);
+        r.resolve(&mut ());
+        assert_eq!(r.path().len(), 3);
+
+        set_seats(&mut r, &seats, 1);
+        r.resolve(&mut ());
+        assert_eq!(r.path(), vec!["session", "lobby"]);
+    }
+
+    /// Provide the session scope, walk once so it mounts, and hand back
+    /// the one producer allowed to write its seats.
+    fn session_of(r: &mut Router<(), (), Fixed>) -> Producer<Session> {
+        let scope = Scope::Node("session");
+        r.store_mut().provides(scope, Session::default()).unwrap();
+        r.resolve(&mut ());
+        r.store_mut()
+            .producer::<Session>(scope, &["seats"])
+            .expect("one producer, once")
+    }
+
+    /// Fill the seats through that producer, so the guard's facts are the
+    /// store's and not a test's fixture.
+    fn set_seats(r: &mut Router<(), (), Fixed>, seats: &Producer<Session>, count: i64) {
+        r.store_mut().tick(&mut Outbox::<()>::new(), |_, b| {
+            let mut w = b.writer(seats).unwrap();
+            set!(w, seats, count).unwrap();
+        });
+    }
+
+    /// A scope keyed on an id the table does not register fails at startup,
+    /// rather than never mounting and letting an empty screen be the
+    /// diagnostic.
+    #[test]
+    fn a_scope_on_a_misspelt_node_fails_at_startup() {
+        let mut r = celia_router(false);
+        assert_eq!(
+            r.store_mut()
+                .provides(Scope::Node("lobbi"), Session::default())
+                .err(),
+            Some(crate::StoreError::UnknownNode("lobbi"))
+        );
     }
 }

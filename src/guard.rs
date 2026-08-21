@@ -1,41 +1,25 @@
 //! §3.4's data shape: a node guards its own door, and a refusal is a
 //! sentence written once.
 //!
-//! Evaluation is not here. Ask-then-mount — the framework calling a
-//! guard before the walk commits to a node — activates when the store
-//! lands (`APPLICATION_BUILD.md` WP-2.2). What lands now is the part
-//! every game otherwise keeps hand-rolled on its own side of the seam
-//! (untold_lore's rooms table, with its `Requires`/`Refusal` columns):
-//! the **one-list property** — a guard registers with its node, in the
-//! table — and the refusal's form.
+//! The form is pinned (decided 2026-08-20, do not revisit): a guard is a
+//! **plain Rust function per node**, `fn(&Store) -> Result<(), Refusal>`,
+//! called by the framework at ask-time. The table will never grow a
+//! predicate DSL. Expressiveness stays in Rust, where the store's fields
+//! are; the framework owns only where guards live and how a refusal
+//! travels.
 //!
-//! The form is pinned (decided 2026-08-20, do not revisit): a guard is
-//! a **plain Rust function per node**, `fn(&Store) -> Result<(),
-//! Refusal>`, called by the framework at ask-time. The table will never
-//! grow a predicate DSL. Expressiveness stays in Rust, where the
-//! store's fields are; the framework owns only where guards live and
-//! how a refusal travels.
+//! Evaluation lands with the store (WP-2.2) and lives in the walk —
+//! [`Router::walk`](crate::Router) asks a node's guard before it descends
+//! onto it, so entering really is a request the guard rules on rather than
+//! a fait accompli. The same evaluation is reachable ahead of time through
+//! [`Router::ask`](crate::Router::ask), which is what a panel row that
+//! grays itself calls: one sentence, one evaluation, two surfaces.
+//!
+//! What is *not* here is a `Store`. The store is [`crate::store`]'s, and
+//! this module names it only in the signature above — which is the whole
+//! of the coupling between §3.4 and §5, and is deliberately one line.
 
-/// The structure framework's state store (`APPLICATION.md` §5).
-///
-/// A placeholder: WP-2.2 lands the real store **in this crate**, which
-/// is why guards can name it concretely today with no generic parameter
-/// infecting [`RouteTable`](crate::RouteTable) — the type fills in under
-/// this name, and every registered guard keeps compiling unchanged.
-/// Unconstructible outside the crate on purpose: nothing can call a
-/// guard before the framework can, so no host grows an ask-then-mount
-/// of its own against a store that holds nothing.
-pub struct Store {
-    _not_yet: (),
-}
-
-#[cfg(test)]
-impl Store {
-    /// Tests exercise the refusal path before WP-2.2 exists.
-    pub(crate) fn placeholder() -> Self {
-        Store { _not_yet: () }
-    }
-}
+pub use crate::store::Store;
 
 /// A node's precondition, ruled on at ask-time: entering is a request
 /// the guard rules on, never a fait accompli (§3.4).

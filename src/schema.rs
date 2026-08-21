@@ -300,6 +300,25 @@ pub enum Grain {
     Step(f64),
 }
 
+impl Grain {
+    /// Floor a value to this grain. The store applies it on the way in
+    /// (`store::Writer::set_num`); a producer that would rather quantise
+    /// where it *computes* the fact calls this itself, which is the §5.5
+    /// duty as written.
+    ///
+    /// A non-positive step floors to nothing: a step of zero is a schema
+    /// saying "every value matters" the long way round, and refusing it
+    /// here would be a division by zero at the one call site that cannot
+    /// report anything.
+    pub fn floor(&self, value: f64) -> f64 {
+        match self {
+            Grain::Exact => value,
+            Grain::Step(step) if *step > 0.0 => (value / step).floor() * step,
+            Grain::Step(_) => value,
+        }
+    }
+}
+
 // --- the trait -------------------------------------------------------------
 
 /// A type that describes itself as a scope schema.

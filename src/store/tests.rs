@@ -29,6 +29,18 @@ impl Schema for Session {
             Field::new("stage", Kind::Str).starting_at(crate::Lit::Str("lobby".into())),
         ])
     }
+    // Written out the way `#[derive(Schema)]` writes it: one field, one
+    // declaration, and the declaration is where the value comes from.
+    // `stage` starts at `"lobby"` here *because* the reflection above says
+    // so, which is the property `provides` no longer lets a provider
+    // contradict.
+    fn at_mount(_: Option<&crate::Lit>) -> Self {
+        Self {
+            focused: String::at_mount(None),
+            seats: i64::at_mount(None),
+            stage: String::at_mount(Some(&crate::Lit::Str("lobby".into()))),
+        }
+    }
     fn type_name() -> Option<&'static str> {
         Some("Session")
     }
@@ -48,6 +60,12 @@ impl Schema for Lobby {
             Field::new("pane", Kind::Str),
             Field::new("ready", Kind::Bool),
         ])
+    }
+    fn at_mount(_: Option<&crate::Lit>) -> Self {
+        Self {
+            pane: String::at_mount(None),
+            ready: bool::at_mount(None),
+        }
     }
     fn type_name() -> Option<&'static str> {
         Some("Lobby")
@@ -78,6 +96,12 @@ impl Schema for App {
             Field::new("heading", Kind::Str),
         ])
     }
+    fn at_mount(_: Option<&crate::Lit>) -> Self {
+        Self {
+            launch_fade: f64::at_mount(Some(&crate::Lit::Float(1.0))),
+            heading: String::at_mount(None),
+        }
+    }
     fn type_name() -> Option<&'static str> {
         Some("App")
     }
@@ -94,6 +118,11 @@ const MINUTE: f64 = 1.0 / 1440.0;
 impl Schema for Sky {
     fn reflect() -> Kind {
         Kind::Record(vec![Field::new("hour", Kind::Float).at_grain(MINUTE)])
+    }
+    fn at_mount(_: Option<&crate::Lit>) -> Self {
+        Self {
+            hour: f64::at_mount(None),
+        }
     }
     fn type_name() -> Option<&'static str> {
         Some("Sky")
@@ -126,6 +155,9 @@ impl Schema for Bars {
                 .collect(),
         )
     }
+    fn at_mount(_: Option<&crate::Lit>) -> Self {
+        Self::default()
+    }
     fn type_name() -> Option<&'static str> {
         Some("Bars")
     }
@@ -138,8 +170,8 @@ const LOBBY: Scope = Scope::Node("lobby");
 /// lobby both on the path.
 fn seated() -> Store {
     let mut store = Store::new();
-    store.provides(SESSION, Session::default()).unwrap();
-    store.provides(LOBBY, Lobby::default()).unwrap();
+    store.provides::<Session>(SESSION).unwrap();
+    store.provides::<Lobby>(LOBBY).unwrap();
     store.mount("session");
     store.mount("lobby");
     store
@@ -190,7 +222,7 @@ fn no_consumer_sees_one_field_new_and_another_old() {
 #[test]
 fn ten_sets_in_one_tick_wake_a_subscriber_once() {
     let mut store = Store::new();
-    store.provides(LOBBY, Bars::default()).unwrap();
+    store.provides::<Bars>(LOBBY).unwrap();
     store.mount("lobby");
     let bars = store.producer::<Bars>(LOBBY, &BAR_NAMES).unwrap();
     let who = store.subscriber();
@@ -343,7 +375,7 @@ fn a_raise_landing_this_tick_commits_this_tick() {
 #[test]
 fn a_set_into_a_scope_that_is_not_on_the_path_is_an_error() {
     let mut store = Store::new();
-    store.provides(LOBBY, Lobby::default()).unwrap();
+    store.provides::<Lobby>(LOBBY).unwrap();
     let lobby = store.producer::<Lobby>(LOBBY, &["pane"]).unwrap();
 
     let mut refused = None;
@@ -467,7 +499,7 @@ fn a_field_put_back_inside_one_tick_wakes_nobody() {
 #[test]
 fn a_declared_grain_is_applied_on_the_way_in() {
     let mut store = Store::new();
-    store.provides(LOBBY, Sky::default()).unwrap();
+    store.provides::<Sky>(LOBBY).unwrap();
     store.mount("lobby");
     let sky = store.producer::<Sky>(LOBBY, &["hour"]).unwrap();
 
@@ -586,7 +618,7 @@ fn an_unsubscribed_consumer_is_told_nothing_more() {
 #[test]
 fn a_scope_can_be_subscribed_to_before_its_node_arrives() {
     let mut store = Store::new();
-    store.provides(LOBBY, Lobby::default()).unwrap();
+    store.provides::<Lobby>(LOBBY).unwrap();
     let who = store.subscriber();
     store.subscribe(who, LOBBY, "pane").unwrap();
     assert_eq!(
@@ -610,23 +642,45 @@ fn a_scope_can_be_subscribed_to_before_its_node_arrives() {
 #[test]
 fn the_process_scope_stands_before_any_path_does() {
     let mut store = Store::new();
-    store.provides(Scope::Process, App::default()).unwrap();
+    store.provides::<App>(Scope::Process).unwrap();
     assert!(store.is_mounted(Scope::Process));
     assert_eq!(
         store.read::<App>(Scope::Process).unwrap().launch_fade,
         1.0,
-        "the at-mount value is the provider's, and it is not a zero"
+        "the at-mount value is the schema's, and it is not a zero"
     );
 }
 
+/// **A declaration and an at-mount value cannot disagree** (§4.1).
+///
+/// `Session` declares `stage = "lobby"` and derives nothing else; `stage`
+/// is therefore `"lobby"` before any producer has run, and every other
+/// field is its own zero. The point is not that the two agree — it is that
+/// [`Store::provides`] takes no value, so there is no second value for the
+/// declaration to disagree *with*. `Session::default()` (which says `""`)
+/// is right there in this file and cannot reach the store.
 #[test]
-fn a_scope_mounts_at_the_value_its_provider_declared() {
+fn a_scope_mounts_at_what_its_schema_declares_and_nothing_else_can_say() {
     let store = seated();
+    let session = store.read::<Session>(SESSION).unwrap();
+    let declared = store
+        .reflection(SESSION)
+        .and_then(|kind| kind.field_at("stage").ok())
+        .map(|field| field.initial.clone())
+        .expect("provided");
+
     assert_eq!(
-        store.read::<Session>(SESSION).unwrap(),
-        &Session::default(),
-        "before any producer has run"
+        declared,
+        crate::Initial::Declared(crate::Lit::Str("lobby".into()))
     );
+    assert_eq!(session.stage, "lobby", "the declaration, and not a zero");
+    assert_ne!(
+        session,
+        &Session::default(),
+        "the provider's `Default` is not what a scope mounts at, and has no way in"
+    );
+    assert_eq!(session.focused, "", "an undeclared field takes its zero");
+    assert_eq!(session.seats, 0);
 }
 
 // --- registration errors ---------------------------------------------------
@@ -634,9 +688,9 @@ fn a_scope_mounts_at_the_value_its_provider_declared() {
 #[test]
 fn a_second_provider_for_one_scope_fails_at_startup() {
     let mut store = Store::new();
-    store.provides(LOBBY, Lobby::default()).unwrap();
+    store.provides::<Lobby>(LOBBY).unwrap();
     assert_eq!(
-        store.provides(LOBBY, Lobby::default()).err(),
+        store.provides::<Lobby>(LOBBY).err(),
         Some(StoreError::AlreadyProvided(LOBBY))
     );
 }
@@ -649,10 +703,13 @@ fn a_scope_schema_that_is_not_a_record_fails_at_startup() {
         fn reflect() -> Kind {
             Kind::List(Box::new(Kind::Str))
         }
+        fn at_mount(_: Option<&crate::Lit>) -> Self {
+            Rows
+        }
     }
     let mut store = Store::new();
     assert_eq!(
-        store.provides(LOBBY, Rows).err(),
+        store.provides::<Rows>(LOBBY).err(),
         Some(StoreError::NotARecord {
             scope: LOBBY,
             kind: "a list",

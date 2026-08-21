@@ -74,6 +74,17 @@
 //! flags") implemented once, in the place every hand-rolled diff idiom was
 //! re-implementing it.
 //!
+//! # The declaration *is* the at-mount value (§4.1)
+//!
+//! [`provides`](Store::provides) takes a type and no value. A scope's first
+//! value is assembled by [`Schema::at_mount`](crate::Schema::at_mount) from
+//! the very declarations the reflection publishes, so "the schema says this
+//! field mounts at 1.0" and "the scope mounted at 1.0" are one fact rather
+//! than two that agree by convention. untold_lore's `launch_fade` — a
+//! chrome that drew perfectly and showed nothing — is the lesson, and the
+//! form this takes is the reason it cannot recur: there is no second value
+//! for the declaration to disagree with.
+//!
 //! Single writer per field is enforced by claim: a producer names the
 //! fields it sets ([`Store::producer`]) and two producers naming one field
 //! is a **startup** error, not a race nobody notices. Setting a field
@@ -293,7 +304,8 @@ struct Registration {
     type_id: TypeId,
     type_name: &'static str,
     /// The value a mount starts from (§4.1: a field's at-mount value is
-    /// what it holds before any producer runs).
+    /// what it holds before any producer runs), built by the schema from
+    /// its own declarations and never handed in by a provider.
     at_mount: Box<dyn Any>,
     /// `T::clone` behind a fn pointer, monomorphised at registration. This
     /// and [`publish`](Registration::publish) are the only two things the
@@ -428,23 +440,21 @@ impl Store {
 
     // --- registration ------------------------------------------------------
 
-    /// Declare that `scope` is provided by the schema type `T`, whose
-    /// at-mount value is `at_mount` (§4.1).
+    /// Declare that `scope` is provided by the schema type `T` (§4.1).
     ///
-    /// The at-mount value is a *value*, not a reconstruction of the
-    /// schema's [`Initial`](crate::Initial) declarations, because the store
-    /// holds the provider's Rust type and only the provider can build one.
-    /// The declarations remain what a document validates and a coverage
-    /// report reads; keeping the two honest is the report §4.1's second
-    /// grade asks for, and it belongs with the derive that emits both.
+    /// It takes **no at-mount value**, and that absence is the point. The
+    /// schema declares each field's at-mount value and the derive builds the
+    /// struct from those same declarations
+    /// ([`Schema::at_mount`](crate::Schema::at_mount)), so there is nowhere
+    /// for a second opinion to come from: a provider cannot hand in a value
+    /// that disagrees with what its schema publishes, because it hands in no
+    /// value. That is §4.1's "a field's at-mount value is declared" held by
+    /// construction rather than by a check — the `launch_fade` lesson with
+    /// the last gap closed.
     ///
     /// [`Scope::Process`] mounts here and now. A [`Scope::Node`] mounts
     /// when its node joins the path and not before.
-    pub fn provides<T: ScopeSchema>(
-        &mut self,
-        scope: Scope,
-        at_mount: T,
-    ) -> Result<(), StoreError> {
+    pub fn provides<T: ScopeSchema>(&mut self, scope: Scope) -> Result<(), StoreError> {
         self.registered(scope)?;
         if self.registry.contains_key(&scope) {
             return Err(StoreError::AlreadyProvided(scope));
@@ -470,7 +480,9 @@ impl Store {
                 index,
                 type_id: TypeId::of::<T>(),
                 type_name: std::any::type_name::<T>(),
-                at_mount: Box::new(at_mount),
+                // The schema's own declarations, assembled — the *only*
+                // place a scope's first value comes from.
+                at_mount: Box::new(T::at_mount(None)),
                 clone_box: |value| match value.downcast_ref::<T>() {
                     Some(value) => Box::new(value.clone()),
                     None => unreachable!("a registration only ever holds its own type"),

@@ -501,7 +501,6 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     use super::*;
     use crate::schema::{Field, Kind, Schema};
@@ -598,41 +597,63 @@ mod tests {
         fn reflect() -> Kind {
             Kind::Record(vec![Field::new("seats", Kind::Int)])
         }
+        fn at_mount(_: Option<&crate::Lit>) -> Self {
+            Self {
+                seats: i64::at_mount(None),
+            }
+        }
         fn type_name() -> Option<&'static str> {
             Some("Session")
         }
     }
 
+    std::thread_local! {
+        /// How many [`Watched`] values are alive on this thread.
+        ///
+        /// A thread local rather than a handle carried in the value,
+        /// because [`Store::provides`](crate::Store::provides) takes no
+        /// value: a scope's first value is assembled by its own schema
+        /// (§4.1), so a witness has no ride in on one. Thread-local rather
+        /// than static so the count belongs to the one test that reads it.
+        static ALIVE: AtomicUsize = const { AtomicUsize::new(0) };
+    }
+
+    fn alive() -> usize {
+        ALIVE.with(|n| n.load(Ordering::SeqCst))
+    }
+
     /// A view scope that says when it is dropped, so "the state died with
     /// its node" is witnessed rather than inferred from an absent read.
-    /// `alive` is not a field of the schema — a reflection is a
-    /// declaration of the facts a scope provides, not a mirror of every
-    /// Rust field the provider's type happens to carry.
     #[derive(Debug)]
     struct Watched {
         pane: String,
-        alive: Arc<AtomicUsize>,
+    }
+
+    impl Watched {
+        fn born(pane: String) -> Self {
+            ALIVE.with(|n| n.fetch_add(1, Ordering::SeqCst));
+            Self { pane }
+        }
     }
 
     impl Clone for Watched {
         fn clone(&self) -> Self {
-            self.alive.fetch_add(1, Ordering::SeqCst);
-            Self {
-                pane: self.pane.clone(),
-                alive: Arc::clone(&self.alive),
-            }
+            Self::born(self.pane.clone())
         }
     }
 
     impl Drop for Watched {
         fn drop(&mut self) {
-            self.alive.fetch_sub(1, Ordering::SeqCst);
+            ALIVE.with(|n| n.fetch_sub(1, Ordering::SeqCst));
         }
     }
 
     impl Schema for Watched {
         fn reflect() -> Kind {
             Kind::Record(vec![Field::new("pane", Kind::Str)])
+        }
+        fn at_mount(_: Option<&crate::Lit>) -> Self {
+            Self::born(String::at_mount(None))
         }
         fn type_name() -> Option<&'static str> {
             Some("Watched")
@@ -688,17 +709,11 @@ mod tests {
     /// what makes half of regency's `teardown` unwritable.
     #[test]
     fn a_scope_dies_with_its_node_and_comes_back_at_mount() {
-        let alive = Arc::new(AtomicUsize::new(1));
         let mut r = celia_router(true);
         r.store_mut()
-            .provides(
-                Scope::Node("arena"),
-                Watched {
-                    pane: String::new(),
-                    alive: Arc::clone(&alive),
-                },
-            )
+            .provides::<Watched>(Scope::Node("arena"))
             .expect("`arena` is a registered node");
+        assert_eq!(alive(), 1, "the at-mount template the schema built");
         let pane = r
             .store_mut()
             .producer::<Watched>(Scope::Node("arena"), &["pane"])
@@ -709,11 +724,7 @@ mod tests {
 
         r.resolve(&mut ());
         assert_eq!(r.path(), vec!["session", "lobby", "arena"]);
-        assert_eq!(
-            alive.load(Ordering::SeqCst),
-            3,
-            "the template and two copies"
-        );
+        assert_eq!(alive(), 3, "the template and two copies");
         r.store_mut().tick(&mut Outbox::<()>::new(), |_, b| {
             let mut w = b.writer(&pane).unwrap();
             set!(w, pane, "tohri".to_string()).unwrap();
@@ -731,11 +742,7 @@ mod tests {
         r.resolve(&mut ());
         assert_eq!(r.path(), vec!["session", "lobby"]);
         assert!(r.store().read::<Watched>(Scope::Node("arena")).is_none());
-        assert_eq!(
-            alive.load(Ordering::SeqCst),
-            1,
-            "only the at-mount template is left holding it"
-        );
+        assert_eq!(alive(), 1, "only the at-mount template is left");
 
         // And back. What it holds is the at-mount value, because there was
         // nowhere for the old one to have been kept.
@@ -809,7 +816,7 @@ mod tests {
     /// the one producer allowed to write its seats.
     fn session_of(r: &mut Router<(), (), Fixed>) -> Producer<Session> {
         let scope = Scope::Node("session");
-        r.store_mut().provides(scope, Session::default()).unwrap();
+        r.store_mut().provides::<Session>(scope).unwrap();
         r.resolve(&mut ());
         r.store_mut()
             .producer::<Session>(scope, &["seats"])
@@ -833,7 +840,7 @@ mod tests {
         let mut r = celia_router(false);
         assert_eq!(
             r.store_mut()
-                .provides(Scope::Node("lobbi"), Session::default())
+                .provides::<Session>(Scope::Node("lobbi"))
                 .err(),
             Some(crate::StoreError::UnknownNode("lobbi"))
         );

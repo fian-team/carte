@@ -42,7 +42,10 @@
 //! - [`Initial`] — §4.1: a field's at-mount value is declared, because a
 //!   silent zero-default renders as an invisible chrome. What is *not*
 //!   declared still lands in the reflection, marked as implied, so the
-//!   drift is reportable (§4.1's second grade) instead of invisible.
+//!   drift is reportable (§4.1's second grade) instead of invisible. The
+//!   declaration is also the value: [`Schema::at_mount`] builds it from the
+//!   same marker the reflection prints, so a scope cannot mount at one
+//!   value while its schema publishes another.
 //! - [`Grain`] — §5.5: a schema may declare a field's grain, because a raw
 //!   per-frame float defeats the store's equality check and wakes every
 //!   subscriber every frame.
@@ -335,21 +338,68 @@ pub trait Schema {
     /// level before the guard engages.
     fn reflect() -> Kind;
 
+    /// The value a field of this type holds at mount, given whatever its
+    /// schema declared (§4.1).
+    ///
+    /// `declared` is `Some` exactly when the field carried a
+    /// `#[schema(default = …)]`, and it is the same literal
+    /// [`Initial::Declared`] holds in the reflection — **from the same
+    /// marker**, which is the whole of why the two cannot disagree. `None`
+    /// means the field declared nothing, and the type composes its own
+    /// zero: an empty string, a `0`, an empty list, a record whose fields
+    /// each take their own.
+    ///
+    /// This is not a back door for a type to choose its own blank value.
+    /// A type composing its parts' zeros is all it may do; a type whose
+    /// safe value is *not* its zero (untold_lore's `Arrival(1.0)`) still
+    /// has to be **declared** at the field, which is §4.1's whole lesson —
+    /// the difference is that the declaration is now the only place the
+    /// value comes from, rather than a second opinion beside a provider's
+    /// hand-built struct.
+    ///
+    /// A literal a type cannot hold panics, naming both. It is a startup
+    /// path with a declaration behind it, and the alternative — a silent
+    /// fall back to the zero, with the reflection still promising the
+    /// declared value — is exactly the drift this method exists to end.
+    fn at_mount(declared: Option<&Lit>) -> Self
+    where
+        Self: Sized;
+
     /// A stable name for nominal types, used by [`reflect_of`] to break
     /// recursion — and used *nowhere else*, least of all in
     /// [`Kind::compare`]. Anonymous shapes (scalars, `Vec`, tuples) keep
     /// the default `None`; the derive overrides it.
-    ///
-    /// There is deliberately no `implied_initial` beside it: a field's
-    /// at-mount value follows from its *kind* ([`Lit::implied_by`]), so a
-    /// type has no say in it. That is §4.1 held to — a type whose blank
-    /// value is not its zero (untold_lore's `Arrival(1.0)`) has to
-    /// **declare** it, which is the whole lesson.
     fn type_name() -> Option<&'static str>
     where
         Self: Sized,
     {
         None
+    }
+}
+
+/// What a leaf does with an at-mount literal its kind cannot hold.
+///
+/// Loud, because the reflection has already published the declaration: a
+/// field promising `= 3` and mounting at `""` is the invisible chrome with
+/// an extra step.
+fn wrong_lit(want: &'static str, declared: &Lit) -> ! {
+    panic!(
+        "a {want} field's at-mount value must be a {want} literal, and its schema declares \
+         {declared:?}"
+    )
+}
+
+/// A composite's at-mount value: its parts each take their own, so the only
+/// declaration it can be handed is the absence of one.
+///
+/// Public because the derive emits it: a record, a union and a tuple struct
+/// all say this about themselves, and saying it in one place is what keeps
+/// the message the same wherever a schema declares a literal its shape
+/// cannot hold.
+pub fn takes_no_literal(what: &'static str, declared: Option<&Lit>) {
+    match declared {
+        None | Some(Lit::Composed) => {}
+        Some(other) => wrong_lit(what, other),
     }
 }
 
@@ -388,49 +438,96 @@ impl Schema for String {
     fn reflect() -> Kind {
         Kind::Str
     }
+
+    fn at_mount(declared: Option<&Lit>) -> Self {
+        match declared {
+            None => String::new(),
+            Some(Lit::Str(value)) => value.clone(),
+            Some(other) => wrong_lit("str", other),
+        }
+    }
 }
 
 impl Schema for bool {
     fn reflect() -> Kind {
         Kind::Bool
     }
+
+    fn at_mount(declared: Option<&Lit>) -> Self {
+        match declared {
+            None => false,
+            Some(Lit::Bool(value)) => *value,
+            Some(other) => wrong_lit("bool", other),
+        }
+    }
 }
 
-/// `impl Schema` for the numeric scalars. Ogham's value model has one
-/// integer type and one float type, so the Rust widths collapse to two
-/// kinds exactly as they do in `editable`.
-macro_rules! impl_numeric_leaf {
-    ($($t:ty => $kind:expr);+ $(;)?) => {$(
+/// `impl Schema` for the integer widths. Ogham's value model has one
+/// integer type, so the Rust widths collapse to one kind exactly as they do
+/// in `editable`. A float literal is refused rather than truncated: a
+/// declared `2.5` in an integer field has a right answer nobody can name.
+macro_rules! impl_int_leaf {
+    ($($t:ty),+ $(,)?) => {$(
         impl Schema for $t {
-            fn reflect() -> Kind { $kind }
+            fn reflect() -> Kind { Kind::Int }
+
+            fn at_mount(declared: Option<&Lit>) -> Self {
+                match declared {
+                    None => 0,
+                    Some(Lit::Int(value)) => *value as $t,
+                    Some(other) => wrong_lit("int", other),
+                }
+            }
         }
     )+};
 }
 
-impl_numeric_leaf! {
-    i64   => Kind::Int;
-    i32   => Kind::Int;
-    i16   => Kind::Int;
-    i8    => Kind::Int;
-    isize => Kind::Int;
-    u64   => Kind::Int;
-    u32   => Kind::Int;
-    u16   => Kind::Int;
-    u8    => Kind::Int;
-    usize => Kind::Int;
-    f64   => Kind::Float;
-    f32   => Kind::Float;
+impl_int_leaf!(i64, i32, i16, i8, isize, u64, u32, u16, u8, usize);
+
+/// `impl Schema` for the float widths. An integer literal widens, because
+/// `#[schema(default = 1)]` on a float is what an author writes for `1.0`
+/// and the derive already lands it as a float in the reflection.
+macro_rules! impl_float_leaf {
+    ($($t:ty),+ $(,)?) => {$(
+        impl Schema for $t {
+            fn reflect() -> Kind { Kind::Float }
+
+            fn at_mount(declared: Option<&Lit>) -> Self {
+                match declared {
+                    None => 0.0,
+                    Some(Lit::Float(value)) => *value as $t,
+                    Some(Lit::Int(value)) => *value as $t,
+                    Some(other) => wrong_lit("float", other),
+                }
+            }
+        }
+    )+};
 }
+
+impl_float_leaf!(f64, f32);
 
 impl<T: Schema> Schema for Vec<T> {
     fn reflect() -> Kind {
         Kind::List(Box::new(reflect_of::<T>()))
+    }
+
+    /// A list mounts empty. §4.1's declaration is about a *field*, and a
+    /// list has no literal to declare — its elements each take their own,
+    /// once there are any.
+    fn at_mount(declared: Option<&Lit>) -> Self {
+        takes_no_literal("a list", declared);
+        Vec::new()
     }
 }
 
 impl<T: Schema, const N: usize> Schema for [T; N] {
     fn reflect() -> Kind {
         Kind::Tuple((0..N).map(|_| reflect_of::<T>()).collect())
+    }
+
+    fn at_mount(declared: Option<&Lit>) -> Self {
+        takes_no_literal("a tuple", declared);
+        std::array::from_fn(|_| T::at_mount(None))
     }
 }
 
@@ -441,6 +538,11 @@ macro_rules! impl_tuple {
         impl<$($name: Schema),+> Schema for ($($name,)+) {
             fn reflect() -> Kind {
                 Kind::Tuple(::std::vec![$(reflect_of::<$name>()),+])
+            }
+
+            fn at_mount(declared: Option<&Lit>) -> Self {
+                takes_no_literal("a tuple", declared);
+                ($($name::at_mount(None),)+)
             }
         }
     };
@@ -459,6 +561,11 @@ macro_rules! impl_map {
         impl<K, V: Schema> Schema for $map<K, V> {
             fn reflect() -> Kind {
                 Kind::Map(Box::new(reflect_of::<V>()))
+            }
+
+            fn at_mount(declared: Option<&Lit>) -> Self {
+                takes_no_literal("a map", declared);
+                $map::new()
             }
         }
     )+};

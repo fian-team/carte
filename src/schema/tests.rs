@@ -273,6 +273,9 @@ impl Schema for Branch {
             Field::new("children", reflect_of::<Vec<Branch>>()),
         ])
     }
+    fn at_mount(_: Option<&Lit>) -> Self {
+        Branch
+    }
     fn type_name() -> Option<&'static str> {
         Some("Branch")
     }
@@ -288,4 +291,59 @@ fn a_recursive_schema_reflects_as_a_finite_back_edge() {
     // And the guard unwinds: a second reflection is not poisoned by the
     // first.
     assert_eq!(reflect_of::<Branch>(), reflection);
+}
+
+// --- the at-mount constructor (§4.1) ---------------------------------------
+
+/// A leaf takes the literal its field declared, and its own zero when the
+/// field declared nothing. These two lines are the whole of §4.1's
+/// "declared, not implied" at the leaf, and the derive is what wires a
+/// field's marker to the left-hand side.
+#[test]
+fn a_leaf_takes_the_literal_its_field_declared_or_its_own_zero() {
+    assert_eq!(String::at_mount(None), "");
+    assert_eq!(String::at_mount(Some(&Lit::Str("lobby".into()))), "lobby");
+    assert!(!bool::at_mount(None));
+    assert!(bool::at_mount(Some(&Lit::Bool(true))));
+    assert_eq!(i64::at_mount(None), 0);
+    assert_eq!(i64::at_mount(Some(&Lit::Int(3))), 3);
+    assert_eq!(f32::at_mount(None), 0.0);
+    assert_eq!(f32::at_mount(Some(&Lit::Float(1.0))), 1.0);
+    // The `launch_fade` shape: an author writes `1` for a float and the
+    // reflection already lands it as one, so the value follows.
+    assert_eq!(f64::at_mount(Some(&Lit::Int(1))), 1.0);
+}
+
+/// A composite has no literal of its own: it mounts empty, or composed of
+/// its parts' own at-mount values (§4.1 — a default that needs computing is
+/// a producer, not a schema).
+#[test]
+fn a_composite_mounts_composed_of_its_parts() {
+    assert!(Vec::<String>::at_mount(None).is_empty());
+    assert!(HashMap::<String, i32>::at_mount(None).is_empty());
+    assert_eq!(<[f32; 3]>::at_mount(None), [0.0, 0.0, 0.0]);
+    assert_eq!(
+        <(String, i64)>::at_mount(None),
+        (String::new(), 0),
+        "untold_lore's `bar_hands`, before anything is in either"
+    );
+}
+
+/// A declared literal a type cannot hold is loud rather than quietly
+/// dropped, because the reflection has already published it: a field that
+/// promises `= 3` and mounts at `""` is the invisible chrome with an extra
+/// step.
+#[test]
+#[should_panic(expected = "at-mount value must be a str literal")]
+fn a_literal_a_kind_cannot_hold_says_so() {
+    let _ = String::at_mount(Some(&Lit::Int(3)));
+}
+
+/// And a *composite* handed one says the same. The derive refuses this at
+/// compile time (a collection has no at-mount literal to declare); this is
+/// the floor under a hand-written impl.
+#[test]
+#[should_panic(expected = "a list field's at-mount value")]
+fn a_list_handed_a_literal_says_so() {
+    let _ = Vec::<String>::at_mount(Some(&Lit::Str("rows".into())));
 }

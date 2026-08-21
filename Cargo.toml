@@ -1,0 +1,15 @@
+# `structure` is a working name (APPLICATION.md §8.4): the real name waits
+# until the seam is settled. Never publish this crate under this name.
+[package]
+name = "structure"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "The structure framework's routing half: the route table, the walk, the outbox"
+license = "MIT"
+publish = false
+
+# Empty on purpose, and load-bearing: APPLICATION.md §2's guarantee is that
+# the structure framework depends on nothing of the surface framework, and
+# `cargo tree -p structure` showing nothing at all is the proof.
+[dependencies]

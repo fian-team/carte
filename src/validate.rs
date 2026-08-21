@@ -78,7 +78,8 @@ pub enum Finding {
     /// More than one scope in the mount provides this field; the nearer one
     /// wins. **Reports** — untold_lore's app-global `heading` and the pause
     /// scope's `heading` are both legitimate, and §4.6's binding syntax is
-    /// where the document will eventually say which it meant.
+    /// where the document says which it meant: a selection that names its
+    /// scope has one provider and reports nothing.
     Shadowed {
         document: String,
         field: String,
@@ -114,6 +115,18 @@ pub enum Finding {
     /// vocabulary. **Refuses**: the mapping itself is wrong, and every
     /// selection against it would be refused for the wrong reason.
     Unpublished { scope: Scope },
+    /// The document selects from a scope it does not mount under
+    /// (§4.6). **Refuses** — it is the modder's stale expectation one
+    /// level up from a missing field, and every field under it would
+    /// otherwise be refused for a reason that does not name the cause.
+    ///
+    /// The scope arrives as the document's own word for it, because a
+    /// name that resolves to no scope has no [`Scope`] to be.
+    Unmounted {
+        document: String,
+        scope: String,
+        scopes: Vec<Scope>,
+    },
 }
 
 impl Finding {
@@ -124,7 +137,8 @@ impl Finding {
             Finding::Unprovided { .. }
             | Finding::Shape { .. }
             | Finding::Unaccepted { .. }
-            | Finding::Unpublished { .. } => true,
+            | Finding::Unpublished { .. }
+            | Finding::Unmounted { .. } => true,
             Finding::Raise { at, .. } => at.refuses(),
             Finding::Shadowed { .. }
             | Finding::Unread { .. }
@@ -145,7 +159,8 @@ impl Finding {
             | Finding::Unaccepted { document, .. }
             | Finding::Raise { document, .. }
             | Finding::Undrawn { document, .. }
-            | Finding::Unrouted { document, .. } => Some(document),
+            | Finding::Unrouted { document, .. }
+            | Finding::Unmounted { document, .. } => Some(document),
             Finding::Unread { .. } | Finding::Unraised { .. } | Finding::Unpublished { .. } => None,
         }
     }
@@ -211,6 +226,15 @@ impl fmt::Display for Finding {
                 f,
                 "a document mounts under {scope}, and nothing publishes it — neither a schema \
                  nor a vocabulary"
+            ),
+            Finding::Unmounted {
+                document,
+                scope,
+                scopes,
+            } => write!(
+                f,
+                "`{document}` selects from `{scope}`, which is not a scope it mounts under ({})",
+                list(scopes)
             ),
         }
     }
@@ -358,23 +382,55 @@ impl<'a> Validation<'a> {
     pub fn selects(&mut self, document: &str, scopes: &[Scope], selection: &[Field]) {
         self.name(scopes);
         for wanted in selection {
+            self.select_one(document, scopes, &wanted.name, Some(wanted));
+        }
+    }
+
+    /// Check a selection that names fields and **nothing else** (§4.6).
+    ///
+    /// The difference from [`selects`](Self::selects) is the whole point of
+    /// the inversion. A `host_state {}` block restates the provider's
+    /// shapes, so a shape can be *compared* — and can drift, which is what
+    /// [`Finding::Shape`] is for. A selection states only what it reads, so
+    /// there is no second copy of the shape to disagree with the first: the
+    /// field is either provided or it is not, and if it is, its shape is
+    /// the provider's by construction.
+    ///
+    /// Everything else is the same question, asked the same way, and
+    /// answered in the same two grades: a name nothing provides refuses and
+    /// is named; a name two scopes provide reports; a name that is provided
+    /// is read, so it is not also unread.
+    pub fn selects_named(&mut self, document: &str, scopes: &[Scope], names: &[String]) {
+        self.name(scopes);
+        for name in names {
+            self.select_one(document, scopes, name, None);
+        }
+    }
+
+    /// One field of a selection, against the scopes nearest first.
+    ///
+    /// `wanted` is `Some` only when the document restated the shape, which
+    /// only a `host_state {}` block does.
+    fn select_one(&mut self, document: &str, scopes: &[Scope], name: &str, wanted: Option<&Field>) {
+        let wanted_name = name;
+        {
             let mut providers = scopes.iter().filter(|scope| {
                 self.store
                     .reflection(**scope)
-                    .is_some_and(|kind| kind.field_at(&wanted.name).is_ok())
+                    .is_some_and(|kind| kind.field_at(wanted_name).is_ok())
             });
             let Some(scope) = providers.next().copied() else {
                 self.findings.push(Finding::Unprovided {
                     document: document.to_string(),
-                    field: wanted.name.clone(),
+                    field: wanted_name.to_string(),
                     scopes: scopes.to_vec(),
                 });
-                continue;
+                return;
             };
             for by in providers {
                 self.findings.push(Finding::Shadowed {
                     document: document.to_string(),
-                    field: wanted.name.clone(),
+                    field: wanted_name.to_string(),
                     scope,
                     by: *by,
                 });
@@ -382,26 +438,39 @@ impl<'a> Validation<'a> {
             let provided = self
                 .store
                 .reflection(scope)
-                .and_then(|kind| kind.field_at(&wanted.name).ok())
+                .and_then(|kind| kind.field_at(wanted_name).ok())
                 .expect("the provider was just found");
             // One field against one field, so the mismatch's path is rooted
             // at the field's own name — which is what §4.1 asks a refusal
             // to say. Presence, at-mount value and grain are the provider's
             // own declarations and are deliberately not compared (§4.7).
-            let want = Kind::Record(vec![wanted.clone()]);
-            let got = Kind::Record(vec![provided.clone()]);
-            if let Err(at) = want.compare(&got) {
-                self.findings.push(Finding::Shape {
-                    document: document.to_string(),
-                    scope,
-                    at,
-                });
+            if let Some(wanted) = wanted {
+                let want = Kind::Record(vec![wanted.clone()]);
+                let got = Kind::Record(vec![provided.clone()]);
+                if let Err(at) = want.compare(&got) {
+                    self.findings.push(Finding::Shape {
+                        document: document.to_string(),
+                        scope,
+                        at,
+                    });
+                }
             }
             // A dotted path reads its root field; nothing below the root is
             // separately subscribable, so nothing below it can be unread.
-            let root = wanted.name.split('.').next().unwrap_or(&wanted.name);
+            let root = wanted_name.split('.').next().unwrap_or(wanted_name);
             self.read.insert((scope, root.to_string()));
         }
+    }
+
+    /// The document selects from a scope name that is not on its mount
+    /// (§4.6) — the refusal one level up from a missing field.
+    pub fn unmounted(&mut self, document: &str, scope: &str, scopes: &[Scope]) {
+        self.name(scopes);
+        self.findings.push(Finding::Unmounted {
+            document: document.to_string(),
+            scope: scope.to_string(),
+            scopes: scopes.to_vec(),
+        });
     }
 
     /// Check one document's raises against the same scopes (§4.4).

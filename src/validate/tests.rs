@@ -457,3 +457,111 @@ fn one_run_refuses_and_reports_at_once() {
     assert!(printed.contains("refuses:"), "{printed}");
     assert!(printed.contains("reports:"), "{printed}");
 }
+
+// --- a selection that names fields and nothing else (§4.6) -----------------
+
+fn names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+/// The same four fields celia's `lobby.ogh` reads, selected by name.
+/// Nothing about their shapes is stated, so nothing about their shapes can
+/// disagree — and the check is otherwise the one the declared form gets.
+#[test]
+fn a_selection_that_names_only_fields_is_checked_the_same_way() {
+    let store = store();
+    let mut check = Validation::new(&store);
+    check.selects_named(
+        "lobby.ogh",
+        &[LOBBY, FRONT],
+        &names(&["heading", "pane", "ready", "seats"]),
+    );
+    let found = check.finish();
+
+    assert!(!found.refuses(), "{found}");
+    assert!(
+        !found
+            .reports()
+            .any(|f| matches!(f, Finding::Unread { field, .. } if field == "pane")),
+        "a selected field is read: {found}"
+    );
+}
+
+/// The refusal a selection is *for*: a name nothing on the mount provides.
+#[test]
+fn a_named_selection_naming_a_field_nothing_provides_refuses() {
+    let store = store();
+    let mut check = Validation::new(&store);
+    check.selects_named("arena.ogh", &[LOBBY, FRONT], &names(&["pane", "status"]));
+    let found = check.finish();
+
+    // `status` is the front rung's, so it resolves; `stance` is nobody's.
+    let mut check = Validation::new(&store);
+    check.selects_named("arena.ogh", &[LOBBY], &names(&["pane", "stance"]));
+    let refused = check.finish();
+    assert!(!found.refuses(), "{found}");
+    assert!(refused.refuses(), "{refused}");
+    assert!(
+        refused
+            .refusals()
+            .any(|f| matches!(f, Finding::Unprovided { field, .. } if field == "stance")),
+        "{refused}"
+    );
+}
+
+/// A selection cannot disagree about a shape, because it never states one.
+///
+/// This is the property that deletes regency's 254-line record block: the
+/// document stops carrying a second copy of the provider's shapes, so the
+/// two copies can no longer drift apart.
+#[test]
+fn a_named_selection_has_no_shape_to_disagree_about() {
+    let store = store();
+    let mut check = Validation::new(&store);
+    // `seats` is an Int; the declared form would have to say so, and would
+    // refuse if it said `string`.
+    check.selects("declared.ogh", &[LOBBY], &[Field::new("seats", Kind::Str)]);
+    assert!(check.finish().refuses());
+
+    let mut check = Validation::new(&store);
+    check.selects_named("selected.ogh", &[LOBBY], &names(&["seats"]));
+    assert!(!check.finish().refuses());
+}
+
+/// Two scopes providing one name still reports, whichever form asked —
+/// §4.6's binding is what a *document* uses to settle it, by naming the
+/// scope it meant.
+#[test]
+fn a_named_selection_reports_a_field_two_scopes_provide() {
+    let mut store = store();
+    store
+        .provides::<Front>(Scope::Node("pause"))
+        .expect("the pause scope");
+    let mut check = Validation::new(&store);
+    check.selects_named(
+        "pause.ogh",
+        &[Scope::Node("pause"), FRONT],
+        &names(&["heading"]),
+    );
+    let found = check.finish();
+
+    assert!(!found.refuses(), "{found}");
+    assert!(
+        found
+            .reports()
+            .any(|f| matches!(f, Finding::Shadowed { field, .. } if field == "heading")),
+        "{found}"
+    );
+
+    // And naming the scope settles it: one scope, one provider, no report.
+    let mut check = Validation::new(&store);
+    check.selects_named("pause.ogh", &[Scope::Node("pause")], &names(&["heading"]));
+    assert!(
+        !check
+            .finish()
+            .all()
+            .iter()
+            .any(|f| matches!(f, Finding::Shadowed { .. })),
+        "naming the scope is how the document says which one it meant"
+    );
+}

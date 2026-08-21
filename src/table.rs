@@ -40,8 +40,19 @@ pub enum Tier {
     /// route's answer because the binding mounts what the table names
     /// (§6.1) — no host hand-mounts a second document.
     InstanceRoot {
-        /// The document the binding mounts for this instance.
-        document: &'static str,
+        /// The document the binding mounts for this instance, or `None`
+        /// when the **host** stands it up and hands it over
+        /// ([`mounts_supplied`](RouteTable::mounts_supplied)).
+        ///
+        /// `None` is not a second tier and deliberately not a second
+        /// variant: everything the instance tier answers — the enclosing
+        /// instance, the area, the boundary a crossing is read out of —
+        /// is true of a supplied root exactly as it is of a named one,
+        /// and the only difference is who calls `Ogham::watch`. A
+        /// variant would have made every one of those questions a
+        /// two-armed match, and the first arm somebody forgot would be
+        /// a root that silently stopped being an instance.
+        document: Option<&'static str>,
     },
     /// Selects a screen/outlet within the enclosing instance. With
     /// several parents (§3.2, the table is a DAG), the screen resolves
@@ -215,7 +226,33 @@ impl RouteTable {
     /// replacing them. Declaring the same id structural too is a startup
     /// error, not a last-wins.
     pub fn mounts(&mut self, id: RouteId, document: &'static str) -> &mut Self {
-        self.set_tier(id, Tier::InstanceRoot { document });
+        self.set_tier(
+            id,
+            Tier::InstanceRoot {
+                document: Some(document),
+            },
+        );
+        self
+    }
+
+    /// Declare `id` an instance root whose document the **host** stands
+    /// up and hands over (`driver::Binding::supply_at`).
+    ///
+    /// The instance tier used to be all-or-nothing per root: a host
+    /// either named a document here and gave up ownership of the
+    /// runtime, or kept ownership and got no instance at all — no area,
+    /// no enclosing instance, and a boundary the crossing read as a cut.
+    /// Every game with a host-owned workspace was stuck there, and
+    /// untold_lore has three, whose trees are another crate's `Ogham`
+    /// with forty handlers registered at construction.
+    ///
+    /// This is the same tier, with the mount left to the host. Everything
+    /// the table answers about an instance root it answers about this
+    /// one; [`document_of`](Self::document_of) is the single question
+    /// whose answer differs, and the binding reads it as "there is
+    /// nothing here for me to mount".
+    pub fn mounts_supplied(&mut self, id: RouteId) -> &mut Self {
+        self.set_tier(id, Tier::InstanceRoot { document: None });
         self
     }
 
@@ -356,11 +393,25 @@ impl RouteTable {
     /// The document `id` mounts, iff it is an instance root. What the
     /// binding mounts (§6.1) — table data, so it is answerable before
     /// any route object exists, which is when mounting happens.
+    /// **Not** the question "is `id` an instance root?" — a supplied
+    /// root is one and answers `None` here. That question is
+    /// [`is_instance_root`](Self::is_instance_root).
     pub fn document_of(&self, id: RouteId) -> Option<&'static str> {
         match self.tier_of(id) {
-            Tier::InstanceRoot { document } => Some(document),
+            Tier::InstanceRoot { document } => document,
             _ => None,
         }
+    }
+
+    /// Whether `id` mounts an instance — named or supplied.
+    ///
+    /// The one form of the question every reader of the instance tier
+    /// actually asks: where an instance begins, where a scope chain is
+    /// cut, and which boundary a crossing is a passage across. Asking it
+    /// as `document_of(id).is_some()` was right while every instance
+    /// root named its document and became wrong the moment one did not.
+    pub fn is_instance_root(&self, id: RouteId) -> bool {
+        matches!(self.tier_of(id), Tier::InstanceRoot { .. })
     }
 
     /// The area `id` stands on: its declared area, else the catch-all.
@@ -637,7 +688,7 @@ mod tests {
         assert_eq!(
             t.tier_of("lobby"),
             Tier::InstanceRoot {
-                document: "data/ui/lobby.ogh"
+                document: Some("data/ui/lobby.ogh")
             }
         );
         assert_eq!(
@@ -689,6 +740,57 @@ mod tests {
             t.enclosing_instance(&["session"]),
             None,
             "a structural prefix mounts nothing"
+        );
+    }
+
+    /// **A supplied root is an instance root.** It answers no document,
+    /// because the host stands that up, and it answers every other
+    /// question the tier answers — which is what makes an area sayable
+    /// about it, and what makes the boundary either side of it a
+    /// passage rather than a cut.
+    #[test]
+    fn a_supplied_root_is_an_instance_root_with_nothing_to_mount() {
+        let mut t = RouteTable::new();
+        t.at_root("title")
+            .at_root("library")
+            .under("map", "library");
+        t.mounts("title", "data/ui/title.ogh")
+            .mounts_supplied("library");
+        t.in_area("title", "menu")
+            .in_area("library", "library")
+            .default_area("menu");
+        t.validate().expect("this table is well formed");
+
+        assert!(t.is_instance_root("library"));
+        assert_eq!(
+            t.document_of("library"),
+            None,
+            "the host stands this one up"
+        );
+        assert_eq!(t.area_of("library"), Some("library"));
+        assert_eq!(
+            t.enclosing_instance(&["library", "map"]),
+            Some("library"),
+            "a view under it belongs to it"
+        );
+        assert_eq!(t.area_of_path(&["library", "map"]), Some("library"));
+        assert!(!t.is_instance_root("map"));
+    }
+
+    /// And it is still one tier, so declaring it twice two ways is the
+    /// same startup error a named root's double declaration is.
+    #[test]
+    fn a_supplied_root_cannot_also_name_a_document() {
+        let mut t = RouteTable::new();
+        t.at_root("library")
+            .mounts_supplied("library")
+            .mounts("library", "data/ui/library.ogh");
+        assert_eq!(
+            t.validate(),
+            Err(TableError::Redeclared {
+                id: "library",
+                attribute: "tier"
+            })
         );
     }
 

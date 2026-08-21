@@ -55,6 +55,11 @@ pub trait Node<Cx, A> {
     fn resolve_child(&self, cx: &Cx) -> Option<RouteId>;
 
     /// What this node hides beneath it. See [`Occlusion`].
+    ///
+    /// The fallback half of §6.2 (occlusion is node data): where the
+    /// table declares the node's occlusion this is never called, and
+    /// the method survives only for consumers whose tables do not
+    /// declare yet. It retires with the P4 driver.
     fn occludes(&self) -> Occlusion;
 
     /// Ticked while on the path, deepest last.
@@ -320,13 +325,23 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, id)| {
-                self.routes
-                    .get(*id)
-                    .map(|r| r.occludes() >= level)
-                    .unwrap_or(false)
-            })
+            .find(|(_, id)| self.occlusion_of(id) >= level)
             .map(|(i, _)| i)
+    }
+
+    /// One node's occlusion: the table's declaration where there is one
+    /// (§6.2 — occlusion is node data, so the arithmetic reads the
+    /// table first), else the node's `occludes()` method, which is the
+    /// seam un-migrated consumers still answer through. An id with no
+    /// handler is unreachable past [`Router::new`]'s check and answers
+    /// [`Occlusion::None`], which never cuts.
+    fn occlusion_of(&self, id: RouteId) -> Occlusion {
+        self.table.declared_occlusion(id).unwrap_or_else(|| {
+            self.routes
+                .get(id)
+                .map(|r| r.occludes())
+                .unwrap_or(Occlusion::None)
+        })
     }
 
     /// Tick every active route, outermost first.
@@ -389,5 +404,88 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             }
         }
         EscapeOutcome::Unclaimed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A node that claims a fixed child and reports a fixed occlusion,
+    /// so a test can make the table and the method disagree on purpose.
+    struct Fixed {
+        child: Option<RouteId>,
+        occludes: Occlusion,
+    }
+
+    impl Node<(), ()> for Fixed {
+        fn resolve_child(&self, _cx: &()) -> Option<RouteId> {
+            self.child
+        }
+        fn occludes(&self) -> Occlusion {
+            self.occludes
+        }
+        fn update(&mut self, _cx: &(), _out: &mut Outbox<()>, _dt: f32) {}
+        fn escape(&mut self, _cx: &(), _out: &mut Outbox<()>) -> Escape {
+            Escape::Fall
+        }
+        fn take_leave_request(&mut self) -> bool {
+            false
+        }
+        fn child_popped(&mut self, _child: RouteId) {}
+        fn enter(&mut self, _cx: &mut ()) {}
+        fn leave(&mut self, _cx: &mut ()) {}
+        fn depart(&mut self, _to: Option<RouteId>) -> Departure {
+            Departure::Cut
+        }
+    }
+
+    fn prompt_router(declare: bool) -> Router<(), (), Fixed> {
+        let mut t = RouteTable::new();
+        t.at_root("workspace").under("prompt", "workspace");
+        if declare {
+            t.occludes("prompt", Occlusion::None);
+        }
+        Router::new(
+            t,
+            vec![
+                (
+                    "workspace",
+                    Box::new(Fixed {
+                        child: Some("prompt"),
+                        occludes: Occlusion::View,
+                    }),
+                ),
+                (
+                    "prompt",
+                    Box::new(Fixed {
+                        child: None,
+                        occludes: Occlusion::View,
+                    }),
+                ),
+            ],
+            |_| "workspace",
+        )
+        .expect("this table is well formed")
+    }
+
+    /// The exit-prompt shape §6.2 exists for: the prompt's method still
+    /// answers the old default, the table declares `Occlusion::None`,
+    /// and the declaration wins — the workspace's screen stays up
+    /// beneath the prompt, with no route object consulted about it.
+    #[test]
+    fn declared_occlusion_outranks_the_method() {
+        let mut r = prompt_router(true);
+        r.resolve(&mut ());
+        assert_eq!(r.visible_views(), vec!["workspace", "prompt"]);
+    }
+
+    /// No declaration, and the method still rules: an un-migrated
+    /// consumer changes nothing and loses nothing.
+    #[test]
+    fn an_undeclared_node_still_answers_through_its_method() {
+        let mut r = prompt_router(false);
+        r.resolve(&mut ());
+        assert_eq!(r.visible_views(), vec!["prompt"]);
     }
 }

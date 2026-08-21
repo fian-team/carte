@@ -1,5 +1,6 @@
-//! The structure framework's routing half: the table, the walk, depth
-//! arbitration, occlusion, escape, departure, and the outbox.
+//! The structure framework's routing half: the table (tiers, areas,
+//! occlusion, guards), the walk, depth arbitration, escape, departure,
+//! and the outbox.
 //!
 //! Extracted from `ogham/src/route` per `APPLICATION.md` §2, whose
 //! engineering guarantee this crate carries: **the structure framework
@@ -18,13 +19,15 @@
 //! `lorekeeper/docs/ROUTING.md` remains the record of the routing axioms
 //! cited throughout; `APPLICATION.md` is the record of the split.
 
+pub mod guard;
 pub mod outbox;
 pub mod router;
 pub mod table;
 
+pub use guard::{Guard, Refusal, Store};
 pub use outbox::Outbox;
 pub use router::{EscapeOutcome, Node, Router};
-pub use table::{RouteTable, TableError};
+pub use table::{RouteTable, TableError, Tier};
 
 /// A route's id: the name a table registers and a `screen` block declares.
 ///
@@ -33,6 +36,14 @@ pub use table::{RouteTable, TableError};
 /// per-frame path, where the walk asks every node on the path for its
 /// child.
 pub type RouteId = &'static str;
+
+/// The ground an instance root stands on — which music plays, which
+/// backdrop stands (`APPLICATION.md` §3.2).
+///
+/// Game vocabulary, so a name rather than an enum: untold_lore's four
+/// roots share three areas, and the table cannot know what a game calls
+/// its grounds. `&'static str` for the same reasons as [`RouteId`].
+pub type Area = &'static str;
 
 /// One argument of a named raise.
 ///

@@ -335,6 +335,18 @@ impl<'a> Validation<'a> {
         }
     }
 
+    /// Whether the store publishes anything for this scope — a schema, a
+    /// vocabulary, or both.
+    ///
+    /// What a caller assembling a mount's scope list asks before naming a
+    /// node that may own no scope at all: most view nodes own none, and
+    /// naming one that publishes nothing is
+    /// [`Finding::Unpublished`] — a refusal, and the wrong answer for a
+    /// screen that simply reads from the instance root above it.
+    pub fn publishes(&self, scope: Scope) -> bool {
+        self.store.reflection(scope).is_some() || self.store.intents(scope).is_some()
+    }
+
     /// Check one document's selection — the fields it says it reads —
     /// against the scopes it mounts under, nearest first (§4.1, §4.2).
     ///

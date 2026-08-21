@@ -109,6 +109,7 @@ use std::marker::PhantomData;
 
 use crate::intent::{Intents, Raise, Refused, Vocabulary};
 use crate::schema::{Field, Grain, Kind, Schema};
+use crate::table::RouteTable;
 use crate::{Outbox, RouteId};
 
 // --- keys and errors -------------------------------------------------------
@@ -432,9 +433,22 @@ impl Store {
         }
     }
 
+    /// A store over one route table's nodes: the scope keys it will accept
+    /// are exactly the ids that table registers.
+    ///
+    /// This is how a binding builds the one store (§6.1) — the store is the
+    /// binding's, and the walk is handed it every frame. Without the table
+    /// a scope keyed on a misspelt id would simply never mount, and the
+    /// empty screen would be the diagnostic.
+    pub fn over(table: &RouteTable) -> Self {
+        let mut store = Self::new();
+        store.knows_nodes(table.ids());
+        store
+    }
+
     /// Tell the store which node ids exist, so a scope provided for one
-    /// that does not fails at startup. Called by [`Router::new`](crate::Router::new).
-    pub(crate) fn knows_nodes(&mut self, ids: &[RouteId]) {
+    /// that does not fails at startup.
+    fn knows_nodes(&mut self, ids: &[RouteId]) {
         self.nodes = Some(ids.iter().copied().collect());
     }
 

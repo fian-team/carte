@@ -558,8 +558,7 @@ fn two_intents_under_one_name_fail_at_startup() {
 fn a_vocabulary_on_an_id_the_table_does_not_register_fails_at_startup() {
     let mut table = crate::RouteTable::new();
     table.at_root("menu");
-    let mut store = Store::new();
-    store.knows_nodes(table.ids());
+    let mut store = Store::over(&table);
     assert_eq!(
         store.accepts::<Menu>(Scope::Node("mneu")).err(),
         Some(StoreError::UnknownNode("mneu")),

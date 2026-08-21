@@ -271,6 +271,71 @@ fn a_pick_this_tick_focuses_this_tick() {
     assert!(outbox.is_empty(), "the tick drained it");
 }
 
+/// **A raise this tick commits this tick.** The same sentence as the test
+/// above, entered through the door §4.4 opens: the click arrives as a named
+/// raise, the scope's published vocabulary decides what it means, and the
+/// typed intent lands on the outbox — which is the *only* place it can land,
+/// so §5.4's pinned order carries it whether the host remembered the order
+/// or not.
+#[test]
+fn a_raise_landing_this_tick_commits_this_tick() {
+    /// The lobby's write side, transcribed as `#[derive(Intent)]` emits it.
+    #[derive(Debug, PartialEq)]
+    enum Pick {
+        Focus { who: String },
+    }
+
+    impl crate::Intents for Pick {
+        fn vocabulary() -> crate::Vocabulary {
+            crate::Vocabulary::new(vec![crate::Accepted::new(
+                "focus",
+                vec![crate::Parameter::of::<String>("who")],
+            )])
+        }
+        fn accept(raise: &crate::Raise) -> Result<Self, crate::Refused> {
+            match raise.name() {
+                "focus" => {
+                    let mut p = raise.parameters("focus", 1)?;
+                    Ok(Pick::Focus {
+                        who: p.take::<String>("who")?,
+                    })
+                }
+                other => Err(crate::Refused::NoSuchIntent {
+                    intent: other.to_string(),
+                }),
+            }
+        }
+    }
+
+    let mut store = seated();
+    store.accepts::<Pick>(LOBBY).unwrap();
+    let session = store.producer::<Session>(SESSION, &["focused"]).unwrap();
+
+    // The document raised; nothing has ticked yet.
+    let mut outbox: Outbox<Pick> = Outbox::new();
+    store
+        .raise::<Pick, Pick>(
+            LOBBY,
+            &crate::Raise::new("focus", vec![crate::RaiseArg::Str("tohri".into())]),
+            &mut outbox,
+        )
+        .unwrap();
+
+    store.tick(&mut outbox, |actions, b| {
+        let mut w = b.writer(&session).unwrap();
+        for Pick::Focus { who } in actions {
+            set!(w, focused, who.clone()).unwrap();
+        }
+    });
+
+    assert_eq!(
+        store.read::<Session>(SESSION).unwrap().focused,
+        "tohri",
+        "the raise was drained ahead of the producers in its own tick"
+    );
+    assert!(outbox.is_empty(), "the tick drained it");
+}
+
 /// **An out-of-scope set is an error.** The arena's producer exists, its
 /// node does not stand on the path, and the writing surface refuses to open
 /// — once, naming the scope, rather than silently accepting facts about a

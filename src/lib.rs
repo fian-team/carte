@@ -27,10 +27,16 @@
 //! exactly as long as the node is on the path, and a node's guard (§3.4) is
 //! an ordinary Rust function over the store.
 //!
+//! [`intent`] is the same contract read backwards (§4.4): a scope publishes
+//! the intents it accepts exactly as it publishes the fields it provides,
+//! and a raise validated against that vocabulary lands on the [`Outbox`] as
+//! a typed action, ahead of the producers in the same tick.
+//!
 //! `lorekeeper/docs/ROUTING.md` remains the record of the routing axioms
 //! cited throughout; `APPLICATION.md` is the record of the split.
 
 pub mod guard;
+pub mod intent;
 pub mod outbox;
 pub mod router;
 pub mod schema;
@@ -38,13 +44,16 @@ pub mod store;
 pub mod table;
 
 pub use guard::{Guard, Refusal};
+pub use intent::{
+    Accepted, Args, Argument, Declared, Drift, Intents, Parameter, Raise, Refused, Vocabulary,
+};
 pub use outbox::Outbox;
 pub use router::{EscapeOutcome, Node, Router};
 pub use schema::{
     reflect_of, Difference, Field, Grain, Initial, Kind, Lit, Mismatch, Presence, Schema, Variant,
 };
 pub use store::{
-    Barrier, Changed, Grained, Notice, Producer, Scope, ScopeSchema, Store, StoreError,
+    Barrier, Changed, Grained, Notice, Producer, RaiseError, Scope, ScopeSchema, Store, StoreError,
     SubscriberId, Writer,
 };
 pub use table::{RouteTable, TableError, Tier};
@@ -126,6 +135,26 @@ impl RaiseArg {
             RaiseArg::Float(f) => Some(*f as f32),
             RaiseArg::Int(i) => Some(*i as f32),
             _ => None,
+        }
+    }
+
+    /// This argument's shape, in the words a refusal uses — the same ones
+    /// [`Kind::name`](crate::Kind::name) uses for the reading direction, so
+    /// one vocabulary describes both.
+    ///
+    /// The two accessors above are the *old* seam, kept while its consumers
+    /// migrate (`APPLICATION_BUILD.md` P6). Nothing on the typed path
+    /// (§4.4) calls them: an intent's parameter is read at its declared
+    /// Rust type through [`Argument`](crate::Argument), which is why the
+    /// missing `as_bool` that shaped `intent_from_raise` has no successor
+    /// here.
+    pub fn shape(&self) -> &'static str {
+        match self {
+            RaiseArg::Str(_) => "str",
+            RaiseArg::Int(_) => "int",
+            RaiseArg::Float(_) => "float",
+            RaiseArg::Bool(_) => "bool",
+            RaiseArg::Opaque => "a closure or a widget",
         }
     }
 }

@@ -96,6 +96,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::marker::PhantomData;
 
+use crate::intent::{Intents, Raise, Refused, Vocabulary};
 use crate::schema::{Field, Grain, Kind, Schema};
 use crate::{Outbox, RouteId};
 
@@ -145,6 +146,12 @@ pub enum StoreError {
     UnknownNode(RouteId),
     /// Two providers for one scope. One scope, one schema.
     AlreadyProvided(Scope),
+    /// Two intent vocabularies for one scope. One scope, one write side.
+    AlreadyAccepting(Scope),
+    /// One vocabulary publishes two intents under one name — two
+    /// `#[serde(rename)]`s colliding where two Rust variants could not.
+    /// One of the two would be permanently unreachable.
+    DuplicateIntent { scope: Scope, intent: String },
     /// Nobody provides this scope, so there is nothing to read, claim or
     /// subscribe to.
     NotProvided(Scope),
@@ -181,6 +188,15 @@ impl fmt::Display for StoreError {
             StoreError::AlreadyProvided(scope) => {
                 write!(f, "{scope} is already provided; one scope, one schema")
             }
+            StoreError::AlreadyAccepting(scope) => write!(
+                f,
+                "{scope} already publishes the intents it accepts; one scope, one write side"
+            ),
+            StoreError::DuplicateIntent { scope, intent } => write!(
+                f,
+                "{scope} publishes two intents named `{intent}`; one of them could never be \
+                 raised"
+            ),
             StoreError::NotProvided(scope) => write!(f, "nothing provides {scope}"),
             StoreError::NotARecord { scope, kind } => write!(
                 f,
@@ -211,6 +227,39 @@ impl fmt::Display for StoreError {
 }
 
 impl std::error::Error for StoreError {}
+
+/// Why a raise did not become an action on the outbox (§4.4).
+///
+/// It names the scope for the same reason every [`StoreError`] does, and
+/// carries the [`Refused`] verbatim: a raise refused for the wrong reason is
+/// a button that quietly reaches nobody, which is the failure the whole of
+/// §4.4 exists to move to load time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiseError {
+    scope: Scope,
+    at: Refused,
+}
+
+impl RaiseError {
+    /// The scope the raise was offered to.
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+
+    /// What the vocabulary said, for a consumer that wants to act rather
+    /// than print.
+    pub fn refusal(&self) -> &Refused {
+        &self.at
+    }
+}
+
+impl fmt::Display for RaiseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.scope, self.at)
+    }
+}
+
+impl std::error::Error for RaiseError {}
 
 // --- what a scope's type must be -------------------------------------------
 
@@ -252,6 +301,19 @@ struct Registration {
     clone_box: fn(&dyn Any) -> Box<dyn Any>,
     /// `dst.clone_from(src)` — what a commit does to publish working state.
     publish: fn(&dyn Any, &mut dyn Any),
+}
+
+/// One provider's write-side declaration (§4.4): the vocabulary a document
+/// validates against, and the type a raise is decoded into.
+///
+/// A map of its own rather than a field of [`Registration`], because the two
+/// declarations are independent: a structural node that owns no facts may
+/// still be the thing a menu raises at, and a scope full of facts may accept
+/// nothing at all. One scope, two declarations, either of them optional.
+struct IntentReg {
+    vocabulary: Vocabulary,
+    type_id: TypeId,
+    type_name: &'static str,
 }
 
 /// A mounted scope: working state, committed state, and what has moved
@@ -312,6 +374,8 @@ pub struct SubscriberId(u64);
 /// table will never grow a predicate DSL.
 pub struct Store {
     registry: BTreeMap<Scope, Registration>,
+    /// The write side of the same contract, keyed the same way (§4.4).
+    intents: BTreeMap<Scope, IntentReg>,
     live: BTreeMap<Scope, Live>,
     /// Which producer, if any, writes each field. Keyed by field rather
     /// than by producer because the question asked at startup is "does
@@ -345,6 +409,7 @@ impl Store {
     pub fn new() -> Self {
         Self {
             registry: BTreeMap::new(),
+            intents: BTreeMap::new(),
             live: BTreeMap::new(),
             claimed: BTreeSet::new(),
             subscriptions: BTreeMap::new(),
@@ -380,11 +445,7 @@ impl Store {
         scope: Scope,
         at_mount: T,
     ) -> Result<(), StoreError> {
-        if let (Scope::Node(id), Some(nodes)) = (scope, &self.nodes) {
-            if !nodes.contains(id) {
-                return Err(StoreError::UnknownNode(id));
-            }
-        }
+        self.registered(scope)?;
         if self.registry.contains_key(&scope) {
             return Err(StoreError::AlreadyProvided(scope));
         }
@@ -549,6 +610,94 @@ impl Store {
         self.registry.get(&scope).map(|reg| &reg.kind)
     }
 
+    // --- the write side (§4.4) ---------------------------------------------
+
+    /// Declare that `scope` accepts the intents `I` publishes.
+    ///
+    /// The mirror of [`provides`](Store::provides), and deliberately a
+    /// second declaration rather than a second argument to the first: §4.4
+    /// says a scope publishes the intents it accepts *exactly as* it
+    /// publishes the fields it provides, and either half stands without the
+    /// other.
+    ///
+    /// Two checks, both at startup for the same reason the claim check is:
+    /// a scope keyed on an id the table does not register would accept
+    /// nothing and say nothing, and a vocabulary with one name twice has one
+    /// intent that can never be raised.
+    pub fn accepts<I: Intents>(&mut self, scope: Scope) -> Result<(), StoreError> {
+        self.registered(scope)?;
+        if self.intents.contains_key(&scope) {
+            return Err(StoreError::AlreadyAccepting(scope));
+        }
+        let vocabulary = I::vocabulary();
+        if let Some(intent) = vocabulary.duplicate() {
+            return Err(StoreError::DuplicateIntent {
+                scope,
+                intent: intent.to_string(),
+            });
+        }
+        self.intents.insert(
+            scope,
+            IntentReg {
+                vocabulary,
+                type_id: TypeId::of::<I>(),
+                type_name: std::any::type_name::<I>(),
+            },
+        );
+        Ok(())
+    }
+
+    /// What a scope accepts (§4.4) — the write half of its contract,
+    /// standing beside [`reflection`](Store::reflection)'s read half.
+    ///
+    /// This is what a document's `events {}` block is checked against at
+    /// load and at every hot reload, through
+    /// [`Vocabulary::check`](crate::Vocabulary::check).
+    pub fn intents(&self, scope: Scope) -> Option<&Vocabulary> {
+        self.intents.get(&scope).map(|reg| &reg.vocabulary)
+    }
+
+    /// Validate one raise against the scope that published it and land it on
+    /// the outbox as an action (§4.4).
+    ///
+    /// The whole of the write path, in one call: a named raise arrives from
+    /// a document, the vocabulary it validated against at load decides what
+    /// it means, and the typed intent becomes an `A`. Because it goes on the
+    /// outbox rather than anywhere else, §5.4's pinned order carries it —
+    /// the next [`tick`](Store::tick) drains it *before* any producer runs,
+    /// so a click raised this tick is applied this tick and its echo costs
+    /// zero frames.
+    ///
+    /// `A: From<I>` is what keeps the seam typed end to end. A host whose
+    /// action enum already is its intent enum writes nothing (`From<T>` for
+    /// `T` is reflexive); a host with a wider action type writes one `From`
+    /// impl, which is a total function over a closed enum and so is exactly
+    /// the thing the compiler checks. What is *not* here is a string.
+    pub fn raise<I, A>(
+        &self,
+        scope: Scope,
+        raise: &Raise,
+        out: &mut Outbox<A>,
+    ) -> Result<(), RaiseError>
+    where
+        I: Intents,
+        A: From<I>,
+    {
+        let refuse = |at| RaiseError { scope, at };
+        let reg = self
+            .intents
+            .get(&scope)
+            .ok_or_else(|| refuse(Refused::NothingPublished))?;
+        if reg.type_id != TypeId::of::<I>() {
+            return Err(refuse(Refused::WrongType {
+                want: std::any::type_name::<I>(),
+                got: reg.type_name,
+            }));
+        }
+        out.push(A::from(I::accept(raise).map_err(refuse)?));
+        Ok(())
+    }
+
     // --- the tick (§5.4) ---------------------------------------------------
 
     /// One frame's transaction: drain, produce, commit — in that order,
@@ -665,6 +814,19 @@ impl Store {
         for (_, subscribers) in subscriptions.range(range) {
             pending.extend(subscribers.iter().copied());
         }
+    }
+
+    /// Whether the route table registers the node this scope is keyed on.
+    /// Asked of every declaration a provider makes, so a scope or a
+    /// vocabulary on a misspelt id fails at startup rather than never
+    /// mounting and leaving the empty screen as the diagnostic.
+    fn registered(&self, scope: Scope) -> Result<(), StoreError> {
+        if let (Scope::Node(id), Some(nodes)) = (scope, &self.nodes) {
+            if !nodes.contains(id) {
+                return Err(StoreError::UnknownNode(id));
+            }
+        }
+        Ok(())
     }
 
     fn registration<T: ScopeSchema>(&self, scope: Scope) -> Result<&Registration, StoreError> {

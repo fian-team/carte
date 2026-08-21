@@ -5,8 +5,8 @@
 //!
 //! The path is **derived, never pushed** (axiom 3). Every frame the router
 //! asks the game's root resolver which route a path starts at, then walks
-//! down: each route on the path answers `resolve_child(cx)`, and the walk
-//! stops at the first route that claims none.
+//! down: each route on the path answers `resolve_child_in(cx, store)`, and
+//! the walk stops at the first route that claims none.
 //!
 //! `resolve_child` returns an `Option`, so a node claims **at most one
 //! child, structurally**. That is what makes the walk total and ordered
@@ -76,6 +76,24 @@ pub trait Node<Cx, A> {
     /// `resolve_child` on the surface-side trait for the contract; the
     /// walk's half of it is: at most one child, re-asked every frame.
     fn resolve_child(&self, cx: &Cx) -> Option<RouteId>;
+
+    /// The same question, asked over the **facts** (§5).
+    ///
+    /// A claim that belongs to somebody else is a store field, not a
+    /// getter on the host's context: the game whose own pane hangs under
+    /// the engine's title writes the claim into the title's scope, and the
+    /// title reads it here. That is the inversion `APPLICATION_BUILD.md`
+    /// WP-5.2 asks for, and the reason it is a second method rather than a
+    /// wider signature on the first is that four repositories implement
+    /// [`resolve_child`](Node::resolve_child) today; this one defaults to
+    /// it, so a node that reads no facts writes nothing.
+    ///
+    /// The store is **committed** state: the walk runs outside the barrier
+    /// (§5.4), so what a node reads here is last tick's commit and never a
+    /// mixture.
+    fn resolve_child_in(&self, cx: &Cx, _store: &Store) -> Option<RouteId> {
+        self.resolve_child(cx)
+    }
 
     /// What this node hides beneath it. See [`Occlusion`].
     ///
@@ -328,7 +346,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
             let Some(route) = self.routes.get(id) else {
                 break;
             };
-            let Some(child) = route.resolve_child(cx) else {
+            let Some(child) = route.resolve_child_in(cx, store) else {
                 break;
             };
             if !self.table.is_child_of(child, id) {
@@ -860,5 +878,97 @@ mod tests {
             r.store.provides::<Session>(Scope::Node("lobbi")).err(),
             Some(crate::StoreError::UnknownNode("lobbi"))
         );
+    }
+
+    // --- a claim that is somebody else's (WP-5.2) --------------------------
+
+    /// A node whose child is whatever `Watched::pane` names, matched
+    /// against the children it is willing to open.
+    ///
+    /// The engine's title, in miniature: the pane a *game* holds open is
+    /// the game's fact, so it is written into the title's scope and read
+    /// here — rather than polled back out of the host through a getter
+    /// the trait had to grow a method for.
+    struct Claiming {
+        scope: Scope,
+        opens: Vec<RouteId>,
+    }
+
+    impl Node<(), ()> for Claiming {
+        fn resolve_child(&self, _cx: &()) -> Option<RouteId> {
+            None
+        }
+        fn resolve_child_in(&self, _cx: &(), store: &Store) -> Option<RouteId> {
+            let claimed = &store.read::<Watched>(self.scope)?.pane;
+            self.opens.iter().copied().find(|id| id == claimed)
+        }
+        fn occludes(&self) -> Occlusion {
+            Occlusion::View
+        }
+        fn update(&mut self, _cx: &(), _out: &mut Outbox<()>, _dt: f32) {}
+        fn escape(&mut self, _cx: &(), _out: &mut Outbox<()>) -> Escape {
+            Escape::Fall
+        }
+        fn take_leave_request(&mut self) -> bool {
+            false
+        }
+        fn child_popped(&mut self, _child: RouteId) {}
+        fn enter(&mut self, _cx: &mut ()) {}
+        fn leave(&mut self, _cx: &mut ()) {}
+        fn depart(&mut self, _to: Option<RouteId>) -> Departure {
+            Departure::Cut
+        }
+    }
+
+    /// **The claim is a fact, and the walk reads it.** Nothing on the
+    /// context says which pane is open; the producer that owns the fact
+    /// sets it, the commit publishes it, and the next walk finds the
+    /// child. A name the node does not open claims nothing rather than
+    /// reporting a table error.
+    #[test]
+    fn a_node_resolves_its_child_out_of_the_store() {
+        let mut t = RouteTable::new();
+        t.at_root("lobby").under("arena", "lobby");
+        let mut store = Store::over(&t);
+        let routes: Vec<(RouteId, Box<dyn Node<(), ()>>)> = vec![
+            (
+                "lobby",
+                Box::new(Claiming {
+                    scope: Scope::Node("lobby"),
+                    opens: vec!["arena"],
+                }),
+            ),
+            (
+                "arena",
+                Box::new(Fixed {
+                    child: None,
+                    occludes: Occlusion::View,
+                }),
+            ),
+        ];
+        let mut router: Router<(), (), dyn Node<(), ()>> =
+            Router::new(t, routes, |_| "lobby").expect("this table is well formed");
+        store.provides::<Watched>(Scope::Node("lobby")).unwrap();
+        router.resolve(&mut (), &mut store);
+        assert_eq!(router.path(), ["lobby"], "nothing is claimed at mount");
+
+        let claim = store
+            .producer::<Watched>(Scope::Node("lobby"), &["pane"])
+            .unwrap();
+        let claims = |store: &mut Store, pane: &str| {
+            store.tick(&mut Outbox::<()>::new(), |_, b| {
+                let mut w = b.writer(&claim).unwrap();
+                set!(w, pane, pane.to_string()).unwrap();
+            });
+        };
+        claims(&mut store, "arena");
+        router.resolve(&mut (), &mut store);
+        assert_eq!(router.path(), ["lobby", "arena"]);
+
+        // A name this node does not open is not a table error — it is a
+        // claim for somebody else, and it claims nothing here.
+        claims(&mut store, "worlds");
+        router.resolve(&mut (), &mut store);
+        assert_eq!(router.path(), ["lobby"]);
     }
 }

@@ -35,8 +35,7 @@ pub use guard::{Guard, Refusal, Store};
 pub use outbox::Outbox;
 pub use router::{EscapeOutcome, Node, Router};
 pub use schema::{
-    reflect_of, Difference, Field, Grain, Initial, Kind, Lit, Mismatch, ParseError, Presence,
-    Schema, Variant,
+    reflect_of, Difference, Field, Grain, Initial, Kind, Lit, Mismatch, Presence, Schema, Variant,
 };
 pub use table::{RouteTable, TableError, Tier};
 

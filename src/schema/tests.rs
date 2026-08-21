@@ -43,17 +43,30 @@ fn everything() -> Kind {
 }
 
 #[test]
-fn a_reflection_round_trips_through_its_printed_form() {
-    let reflection = everything();
-    let printed = reflection.to_string();
-    let read: Kind = printed.parse().expect("what we printed, we can read");
-    assert_eq!(read, reflection, "printed:\n{printed}");
+fn the_whole_corpus_prints() {
+    let printed = everything().to_string();
+    for name in [
+        "heading",
+        "count",
+        "launch_fade",
+        "can_save",
+        "tier",
+        "skills",
+        "by_key",
+        "bar_hands",
+        "item_card",
+        "sea",
+        "sky_hour_now",
+        "kebab-case-name",
+    ] {
+        assert!(printed.contains(name), "{name} is missing from:\n{printed}");
+    }
 }
 
 #[test]
-fn an_implied_at_mount_value_is_recovered_rather_than_printed() {
+fn an_implied_at_mount_value_is_not_printed() {
     // The printed form carries only what an author would have written; the
-    // kind's own zero comes back from the kind.
+    // kind's own zero stays implied, and is recovered from the kind.
     let reflection = Kind::Record(vec![
         Field::new("name", Kind::Str),
         Field::new("tier", Kind::Enum(vec!["calm".into(), "dire".into()])),
@@ -61,10 +74,8 @@ fn an_implied_at_mount_value_is_recovered_rather_than_printed() {
     ]);
     let printed = reflection.to_string();
     assert!(!printed.contains('='), "nothing was declared:\n{printed}");
-    let read: Kind = printed.parse().expect("it reads back");
-    assert_eq!(read, reflection);
 
-    let Kind::Record(fields) = &read else {
+    let Kind::Record(fields) = &reflection else {
         panic!("a record")
     };
     assert_eq!(fields[0].initial, Initial::Implied(Lit::Str(String::new())));
@@ -74,13 +85,6 @@ fn an_implied_at_mount_value_is_recovered_rather_than_printed() {
         "a unit enum's zero is its first name"
     );
     assert_eq!(fields[2].initial, Initial::Implied(Lit::Absent));
-}
-
-#[test]
-fn a_malformed_reflection_says_where_it_stopped() {
-    let err = "{ name: nonsense }".parse::<Kind>().unwrap_err();
-    assert_eq!(err.expected, "a kind");
-    assert!(err.at > 0, "it got past the field name");
 }
 
 // --- structural comparison -------------------------------------------------

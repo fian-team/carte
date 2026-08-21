@@ -115,7 +115,21 @@ pub trait Node<Cx, A> {
 
     /// A child of this node popped, and this node is what was claiming
     /// it. Stop.
-    fn child_popped(&mut self, child: RouteId);
+    ///
+    /// The outbox is here for the same reason it is on
+    /// [`update`](Node::update), [`escape`](Node::escape) and the surface
+    /// tier's `event`: **a node's only way to change the world is an
+    /// action** (§3.3), and this was the one callback that could not ask
+    /// for anything. A claim the *router* releases — Resume, or Escape out
+    /// of pause — therefore had no path into a scope at all, so three
+    /// consumers kept their claims as route state and the "scope state
+    /// dies with its node" half of their ledgers did not land.
+    ///
+    /// It is **zero-lag** where the frame is (`driver::Runner`): the pop
+    /// happens in an event or a delivery, and the barrier that drains this
+    /// outbox runs later in the same frame, so the release is committed
+    /// before the walk that reads it.
+    fn child_popped(&mut self, out: &mut Outbox<A>, child: RouteId);
 
     /// The id entered the path. Not "became deepest" (axiom 10).
     fn enter(&mut self, cx: &mut Cx);
@@ -452,7 +466,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
     /// [`take_leave_request`](Node::take_leave_request) after every
     /// delivery and reports the answer here. When P4 moves that dispatch
     /// into the driver this stays the seam it uses.
-    pub fn pop_at(&mut self, depth: usize) {
+    pub fn pop_at(&mut self, out: &mut Outbox<A>, depth: usize) {
         if depth == 0 {
             // A root route asking to leave has nobody to ask. The
             // lifecycle is what put it there, and only the lifecycle can
@@ -461,7 +475,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
         }
         let (child, parent) = (self.path[depth], self.path[depth - 1]);
         if let Some(parent) = self.routes.get_mut(parent) {
-            parent.child_popped(child);
+            parent.child_popped(out, child);
         }
     }
 
@@ -484,7 +498,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
                     // this the next walk re-derives the same path and the
                     // pop does nothing — the child cannot shorten a path
                     // it does not derive.
-                    self.pop_at(depth);
+                    self.pop_at(out, depth);
                     return EscapeOutcome::Popped(id);
                 }
                 Escape::Prompt => return EscapeOutcome::Prompted(id),
@@ -526,7 +540,7 @@ mod tests {
         fn take_leave_request(&mut self) -> bool {
             false
         }
-        fn child_popped(&mut self, _child: RouteId) {}
+        fn child_popped(&mut self, _out: &mut Outbox<()>, _child: RouteId) {}
         fn enter(&mut self, _cx: &mut ()) {}
         fn leave(&mut self, _cx: &mut ()) {}
         fn depart(&mut self, _to: Option<RouteId>) -> Departure {
@@ -912,7 +926,7 @@ mod tests {
         fn take_leave_request(&mut self) -> bool {
             false
         }
-        fn child_popped(&mut self, _child: RouteId) {}
+        fn child_popped(&mut self, _out: &mut Outbox<()>, _child: RouteId) {}
         fn enter(&mut self, _cx: &mut ()) {}
         fn leave(&mut self, _cx: &mut ()) {}
         fn depart(&mut self, _to: Option<RouteId>) -> Departure {

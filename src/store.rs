@@ -603,6 +603,13 @@ impl Store {
     /// that is not the type the scope was provided with reads as absent,
     /// and fails a `debug_assert` so it is loud where it is a mistake and
     /// silent where it would be a crash.
+    ///
+    /// That assert is a last ditch, not a diagnostic. A consumer whose Rust
+    /// reads a scope somebody *else* provides — the engine's front of house
+    /// reading its own title scope is the case this exists for — asks
+    /// [`provided_as`](Self::provided_as) once at startup instead, because a
+    /// registration mistake is a §4.1 refusal and a panic on the first walk
+    /// is the wrong grade for one.
     pub fn read<T: ScopeSchema>(&self, scope: Scope) -> Option<&T> {
         let live = self.live.get(&scope)?;
         let value = live.committed.downcast_ref::<T>();
@@ -611,6 +618,21 @@ impl Store {
             "{scope} is provided as another type than the one read"
         );
         value
+    }
+
+    /// Whether `scope` is provided at `T` — the refusing form of the
+    /// question [`read`](Self::read) asserts on.
+    ///
+    /// A startup question, and it answers whether or not the scope's node
+    /// is on the path: what it reads is the registration, which a provider
+    /// makes once. So a consumer that will later `read::<T>` a scope it
+    /// does not itself provide asks this while it is still assembling, and
+    /// gets [`StoreError::WrongType`] naming the scope and both types —
+    /// rather than a downcast that fails on the first frame the node
+    /// happens to be on the path, which is a refusal delivered as a crash
+    /// and often not on the developer's machine.
+    pub fn provided_as<T: ScopeSchema>(&self, scope: Scope) -> Result<(), StoreError> {
+        self.registration::<T>(scope).map(|_| ())
     }
 
     /// The version stamp of a scope's committed state: bumped by every

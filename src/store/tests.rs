@@ -726,6 +726,31 @@ fn asking_the_wrong_type_of_a_scope_names_both() {
     ));
 }
 
+/// A consumer whose Rust reads a scope somebody else provides asks at
+/// startup, and is refused there rather than on the walk.
+///
+/// `read` asserts, which is a diagnostic only on a debug build and only
+/// once the node is on the path — a registration mistake delivered as a
+/// crash, which is neither of §4.1's two grades. This is the same question
+/// asked while the consumer is still assembling.
+#[test]
+fn a_scope_read_at_the_wrong_type_is_refused_before_the_first_walk() {
+    let store = seated();
+    assert!(store.provided_as::<Session>(SESSION).is_ok());
+    let Some(StoreError::WrongType { scope, want, got }) =
+        store.provided_as::<Lobby>(SESSION).err()
+    else {
+        panic!("a startup refusal naming the scope");
+    };
+    assert_eq!(scope, SESSION);
+    assert!(want.ends_with("Lobby"), "{want}");
+    assert!(got.ends_with("Session"), "{got}");
+    assert_eq!(
+        store.provided_as::<Lobby>(Scope::Node("nobody")).err(),
+        Some(StoreError::NotProvided(Scope::Node("nobody")))
+    );
+}
+
 /// Every error says which scope, and the field errors say which field —
 /// the §4.1 property, one rung down.
 #[test]

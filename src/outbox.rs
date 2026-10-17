@@ -12,7 +12,7 @@
 //!   is read the snapshot and send a command; with `cx.send()` taking
 //!   `&mut self` that is two conflicting borrows, and the alternatives
 //!   were leaking `Cx`'s field layout into every route or reaching for
-//!   interior mutability (which `ROUTING.md` §13.1 forbids).
+//!   interior mutability (which `APPLICATION.md` §3.9 rules out).
 //! - **Ordering has one owner.** Two drains on one channel, each dropping
 //!   what the other wanted, is a bug this shape cannot have: one queue,
 //!   drained once per frame, by the host.

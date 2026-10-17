@@ -563,7 +563,7 @@ mod tests {
     use super::*;
     use crate::guard::{Refusal, Store};
 
-    /// The table from `ROUTING.md` §4: four edges, three real paths, one
+    /// The routing rework's worked example: four edges, three real paths, one
     /// handler for settings.
     fn settings_table() -> RouteTable {
         let mut t = RouteTable::new();

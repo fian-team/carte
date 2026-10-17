@@ -13,7 +13,7 @@
 //! with no arbiter above it, and it is why `n` independent stance booleans
 //! — `2ⁿ` states of which `n+1` are legal, so every entry point has to
 //! re-assert the invariant — collapse into one `Option<RouteId>` that
-//! cannot hold two values (`ROUTING.md` §13.3).
+//! cannot hold two values (`APPLICATION.md` §3.8).
 //!
 //! # Lifecycle
 //!
@@ -411,8 +411,9 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
     /// The ids whose *screens* render this frame, outermost first.
     ///
     /// A route declaring [`Occlusion::None`] leaves its ancestors' screens
-    /// up — which is what the exit prompts want and cannot express today,
-    /// and is the seventh symptom bug in `ROUTING.md` §2.4.
+    /// up — which is what the exit prompts want (`APPLICATION.md` §6.7): before
+    /// the outlet stacked, exactly one widget tree drew, so the card took
+    /// the tree from the editor it sat over.
     pub fn visible_views(&self) -> Vec<RouteId> {
         let cut = self.deepest_at_least(Occlusion::View);
         match cut {

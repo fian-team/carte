@@ -1,17 +1,17 @@
-# `structure` is a working name (APPLICATION.md §8.4): the real name waits
-# until the seam is settled. Never publish this crate under this name.
+# Carte, the structure framework (APPLICATION.md §8.4 records the name).
+# Not published yet.
 [package]
-name = "structure"
+name = "carte"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
-description = "The structure framework: the route table, the walk, the outbox, and schema reflection"
+description = "Carte: the route table, the walk, the outbox, and schema reflection"
 license = "MIT"
 publish = false
 
 # Empty on purpose, and load-bearing: APPLICATION.md §2's guarantee is that
-# the structure framework depends on nothing of the surface framework, and
-# `cargo tree -p structure` showing nothing at all is the proof.
+# Carte depends on nothing of the surface framework, and
+# `cargo tree -p carte` showing nothing at all is the proof.
 [dependencies]
 
 # Examples only. The library ships with nothing (tests/independence.rs).

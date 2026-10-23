@@ -10,7 +10,7 @@
 //! route path. [`Stage::snapshot`] is the same frame as the page's inspector
 //! reads it.
 //!
-//! The raster half follows Ogham's own browser stage (`ogham/web`), which
+//! The raster half follows Masque's own browser stage (`masque/web`), which
 //! hosts any one document; this one hosts one app.
 
 pub mod app;
@@ -19,16 +19,16 @@ mod json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use ogham::runtime::config::RuntimeConfig;
-use ogham::runtime::value::Value;
-use ogham::skia::SkiaEnv;
-use ogham::skia_safe::{surfaces, AlphaType, Color, ColorType, ImageInfo};
-use ogham::widget::event::{Event, KeyModifiers};
-use ogham::widget::point::Point;
-use ogham::widget::style::CursorRole;
-use ogham::widget::Surface;
-use ogham::Ogham;
-use structure::Scope;
+use masque::runtime::config::RuntimeConfig;
+use masque::runtime::value::Value;
+use masque::skia::SkiaEnv;
+use masque::skia_safe::{surfaces, AlphaType, Color, ColorType, ImageInfo};
+use masque::widget::event::{Event, KeyModifiers};
+use masque::widget::point::Point;
+use masque::widget::style::CursorRole;
+use masque::widget::Surface;
+use masque::Masque;
+use carte::Scope;
 
 use app::{Action, App, Editor, Shared, EDITOR};
 use json::Json;
@@ -38,8 +38,8 @@ pub const DOCUMENT: &str = include_str!("../notes.masque");
 
 const FONT_FAMILY: &str = "Geist";
 const FONTS: &[&[u8]] = &[
-    include_bytes!("../../../ogham/web/fonts/Geist-400.ttf"),
-    include_bytes!("../../../ogham/web/fonts/Geist-700.ttf"),
+    include_bytes!("../../../masque/web/fonts/Geist-400.ttf"),
+    include_bytes!("../../../masque/web/fonts/Geist-700.ttf"),
 ];
 
 /// [`Stage::frame`] drew new pixels.
@@ -143,7 +143,7 @@ const EVENTS: &[&str] = &[
 
 pub struct Stage {
     app: App,
-    ogham: Ogham,
+    masque: Masque,
     env: SkiaEnv,
     /// Logical size and device pixel ratio.
     width: f32,
@@ -179,13 +179,13 @@ impl Stage {
                 Ok(Value::Void)
             });
         }
-        let mut ogham = Ogham::from_source(DOCUMENT, config).map_err(|e| e.to_string())?;
-        ogham.register_font_data(FONT_FAMILY, FONTS);
-        ogham.set_default_font(FONT_FAMILY);
+        let mut masque = Masque::from_source(DOCUMENT, config).map_err(|e| e.to_string())?;
+        masque.register_font_data(FONT_FAMILY, FONTS);
+        masque.set_default_font(FONT_FAMILY);
 
         let mut stage = Self {
             app,
-            ogham,
+            masque,
             env: SkiaEnv::new(raster(1, 1)),
             width: 1.0,
             height: 1.0,
@@ -205,7 +205,7 @@ impl Stage {
     /// What the strict vocabulary found in the document: keys and values
     /// the builder ignores, one per line.
     pub fn notes(&self) -> String {
-        let violations = self.ogham.vocabulary_violations();
+        let violations = self.masque.vocabulary_violations();
         let lines: Vec<String> = violations.iter().map(|v| v.to_string()).collect();
         lines.join("\n")
     }
@@ -285,7 +285,7 @@ impl Stage {
     }
 
     fn call(&mut self, event: &Event) -> bool {
-        let taken = self.ogham.get_ui_mut().call_event(event);
+        let taken = self.masque.get_ui_mut().call_event(event);
         self.settle();
         taken
     }
@@ -323,7 +323,7 @@ impl Stage {
         let trash = app.router.ask("trash", &app.store);
         let on_note = app.router.path().contains(&"note");
         let refusal = self.refusal.clone().unwrap_or_default();
-        self.ogham.with_runtime_mut(|rt| {
+        self.masque.with_runtime_mut(|rt| {
             rt.set_route_path(&views);
             if let Some(shared) = &shared {
                 rt.set_host_state("notes", listed(&shared.notes));
@@ -347,13 +347,13 @@ impl Stage {
     /// stop its animation loop until the next input.
     pub fn frame(&mut self, dt: f32) -> Result<u32, String> {
         let (width, height) = (self.width, self.height);
-        self.ogham.set_screen_size(width, height);
-        if let Err(e) = self.ogham.update() {
+        self.masque.set_screen_size(width, height);
+        if let Err(e) = self.masque.update() {
             let message = e.to_string();
             self.error = Some(message.clone());
             return Err(message);
         }
-        let ui = self.ogham.get_ui_mut();
+        let ui = self.masque.get_ui_mut();
         ui.tick_animations(dt.min(1.0 / 30.0));
         // Read the damage before `layout`, which clears the repaint flag
         // when it runs a full pass.
@@ -465,7 +465,7 @@ fn listed(notes: &[(usize, String)]) -> Vec<Value> {
     notes.iter().map(row).collect()
 }
 
-fn raster(w: i32, h: i32) -> ogham::skia_safe::Surface {
+fn raster(w: i32, h: i32) -> masque::skia_safe::Surface {
     surfaces::raster_n32_premul((w, h)).expect("raster surface")
 }
 

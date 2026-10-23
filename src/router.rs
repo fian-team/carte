@@ -726,8 +726,8 @@ mod tests {
             .under("lobby", "session")
             .under("arena", "lobby");
         t.structural("session")
-            .mounts("lobby", "data/ui/lobby.ogh")
-            .mounts("arena", "data/ui/arena.ogh");
+            .mounts("lobby", "data/ui/lobby.masque")
+            .mounts("arena", "data/ui/arena.masque");
         t.guard("arena", needs_two_players);
         let node = |child: Option<RouteId>| {
             Box::new(Fixed {

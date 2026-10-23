@@ -141,7 +141,7 @@ fn store() -> Store {
     store
 }
 
-/// What celia's `lobby.ogh` selects once its `host_state {}` has inverted:
+/// What celia's `lobby.masque` selects once its `host_state {}` has inverted:
 /// the heading from the front-of-house rung, its own three fields from the
 /// lobby's.
 fn lobby_selection() -> Vec<Field> {
@@ -169,7 +169,7 @@ fn a_selection_naming_a_field_nothing_provides_refuses() {
     let store = store();
     let mut check = Validation::new(&store);
     check.selects(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY, FRONT],
         &[
             Field::new("pane", Kind::Str),
@@ -185,7 +185,7 @@ fn a_selection_naming_a_field_nothing_provides_refuses() {
         .expect("the missing field is named");
     let printed = refusal.to_string();
     assert!(printed.contains("stance"), "{printed}");
-    assert!(printed.contains("lobby.ogh"), "{printed}");
+    assert!(printed.contains("lobby.masque"), "{printed}");
 }
 
 /// A field both sides have, at two different shapes. Structural, so what
@@ -195,7 +195,7 @@ fn a_selection_naming_a_field_nothing_provides_refuses() {
 fn a_selection_at_another_shape_refuses_and_names_the_path() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects("lobby.ogh", &[LOBBY], &[Field::new("seats", Kind::Str)]);
+    check.selects("lobby.masque", &[LOBBY], &[Field::new("seats", Kind::Str)]);
     let found = check.finish();
 
     let Some(Finding::Shape { at, .. }) = found.refusals().next() else {
@@ -223,7 +223,7 @@ fn the_arena_status_celia_never_provided_refuses() {
         .expect("the arena's scope");
     let mut check = Validation::new(&store);
     check.selects(
-        "arena.ogh",
+        "arena.masque",
         &[Scope::Node("arena")],
         &[Field::new("status", Kind::Str)],
     );
@@ -235,7 +235,7 @@ fn the_arena_status_celia_never_provided_refuses() {
         .find(|f| matches!(f, Finding::Unprovided { field, .. } if field == "status"))
         .expect("the field is named");
     let printed = refusal.to_string();
-    assert!(printed.contains("arena.ogh"), "{printed}");
+    assert!(printed.contains("arena.masque"), "{printed}");
     assert!(printed.contains("`arena`'s scope"), "{printed}");
 }
 
@@ -246,7 +246,7 @@ fn the_arena_status_celia_never_provided_refuses() {
 fn a_mount_naming_a_scope_nothing_publishes_refuses() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects("lobby.ogh", &[Scope::Node("lobbby")], &[]);
+    check.selects("lobby.masque", &[Scope::Node("lobbby")], &[]);
     let found = check.finish();
 
     assert!(found.refuses());
@@ -259,7 +259,7 @@ fn a_mount_naming_a_scope_nothing_publishes_refuses() {
 fn a_raise_nothing_accepts_refuses_and_names_the_intent() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.raises("lobby.ogh", &[LOBBY], &[Declared::new("back", vec![])]);
+    check.raises("lobby.masque", &[LOBBY], &[Declared::new("back", vec![])]);
     let found = check.finish();
 
     assert!(found.refuses());
@@ -279,7 +279,7 @@ fn a_raise_at_the_wrong_shape_refuses_through_the_drift_it_carries() {
     let store = store();
     let mut check = Validation::new(&store);
     check.raises(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY],
         &[Declared::new("pick", vec![Kind::Int])],
     );
@@ -302,7 +302,7 @@ fn a_raise_at_the_wrong_shape_refuses_through_the_drift_it_carries() {
 fn a_field_provided_and_read_by_nothing_reports() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects("lobby.ogh", &[LOBBY, FRONT], &lobby_selection());
+    check.selects("lobby.masque", &[LOBBY, FRONT], &lobby_selection());
     let found = check.finish();
 
     assert!(!found.refuses(), "an unread field must not refuse: {found}");
@@ -320,8 +320,8 @@ fn a_field_provided_and_read_by_nothing_reports() {
 fn a_field_only_one_shipped_document_selects_is_read() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects("menu.ogh", &[FRONT], &[Field::new("heading", Kind::Str)]);
-    check.selects("connect.ogh", &[FRONT], &[Field::new("status", Kind::Str)]);
+    check.selects("menu.masque", &[FRONT], &[Field::new("heading", Kind::Str)]);
+    check.selects("connect.masque", &[FRONT], &[Field::new("status", Kind::Str)]);
     let found = check.finish();
 
     assert!(
@@ -340,8 +340,8 @@ fn a_field_only_one_shipped_document_selects_is_read() {
 fn an_intent_no_shipped_document_raises_reports() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects("lobby.ogh", &[LOBBY, FRONT], &lobby_selection());
-    check.raises("lobby.ogh", &[LOBBY], &raised());
+    check.selects("lobby.masque", &[LOBBY, FRONT], &lobby_selection());
+    check.raises("lobby.masque", &[LOBBY], &raised());
     let found = check.finish();
 
     assert!(!found.refuses(), "{found}");
@@ -361,7 +361,7 @@ fn an_intent_no_shipped_document_raises_reports() {
 fn a_screen_and_a_route_id_that_disagree_report_without_refusing() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.draws("menu.ogh", &["title", "credits"], &["title", "settings"]);
+    check.draws("menu.masque", &["title", "credits"], &["title", "settings"]);
     let found = check.finish();
 
     assert!(!found.refuses(), "{found}");
@@ -382,7 +382,7 @@ fn a_field_two_scopes_provide_reports_which_one_won() {
         .expect("the pause scope");
     let mut check = Validation::new(&store);
     check.selects(
-        "lobby.ogh",
+        "lobby.masque",
         &[Scope::Node("pause"), FRONT],
         &[Field::new("heading", Kind::Str)],
     );
@@ -410,7 +410,7 @@ fn a_document_that_agrees_with_the_store_finds_nothing() {
     store.accepts::<Muster>(LOBBY).expect("the lobby's intents");
     let mut check = Validation::new(&store);
     check.selects(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY],
         &[
             Field::new("pane", Kind::Str),
@@ -419,7 +419,7 @@ fn a_document_that_agrees_with_the_store_finds_nothing() {
         ],
     );
     check.raises(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY],
         &[
             Declared::new("pick", vec![Kind::Str]),
@@ -427,7 +427,7 @@ fn a_document_that_agrees_with_the_store_finds_nothing() {
             Declared::new("withdraw", vec![]),
         ],
     );
-    check.draws("lobby.ogh", &["lobby"], &["lobby"]);
+    check.draws("lobby.masque", &["lobby"], &["lobby"]);
     let found = check.finish();
 
     assert!(found.is_empty(), "{found}");
@@ -442,7 +442,7 @@ fn one_run_refuses_and_reports_at_once() {
     let store = store();
     let mut check = Validation::new(&store);
     check.selects(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY, FRONT],
         &[
             Field::new("heading", Kind::Str),
@@ -464,7 +464,7 @@ fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| s.to_string()).collect()
 }
 
-/// The same four fields celia's `lobby.ogh` reads, selected by name.
+/// The same four fields celia's `lobby.masque` reads, selected by name.
 /// Nothing about their shapes is stated, so nothing about their shapes can
 /// disagree — and the check is otherwise the one the declared form gets.
 #[test]
@@ -472,7 +472,7 @@ fn a_selection_that_names_only_fields_is_checked_the_same_way() {
     let store = store();
     let mut check = Validation::new(&store);
     check.selects_named(
-        "lobby.ogh",
+        "lobby.masque",
         &[LOBBY, FRONT],
         &names(&["heading", "pane", "ready", "seats"]),
     );
@@ -492,12 +492,12 @@ fn a_selection_that_names_only_fields_is_checked_the_same_way() {
 fn a_named_selection_naming_a_field_nothing_provides_refuses() {
     let store = store();
     let mut check = Validation::new(&store);
-    check.selects_named("arena.ogh", &[LOBBY, FRONT], &names(&["pane", "status"]));
+    check.selects_named("arena.masque", &[LOBBY, FRONT], &names(&["pane", "status"]));
     let found = check.finish();
 
     // `status` is the front rung's, so it resolves; `stance` is nobody's.
     let mut check = Validation::new(&store);
-    check.selects_named("arena.ogh", &[LOBBY], &names(&["pane", "stance"]));
+    check.selects_named("arena.masque", &[LOBBY], &names(&["pane", "stance"]));
     let refused = check.finish();
     assert!(!found.refuses(), "{found}");
     assert!(refused.refuses(), "{refused}");
@@ -520,11 +520,11 @@ fn a_named_selection_has_no_shape_to_disagree_about() {
     let mut check = Validation::new(&store);
     // `seats` is an Int; the declared form would have to say so, and would
     // refuse if it said `string`.
-    check.selects("declared.ogh", &[LOBBY], &[Field::new("seats", Kind::Str)]);
+    check.selects("declared.masque", &[LOBBY], &[Field::new("seats", Kind::Str)]);
     assert!(check.finish().refuses());
 
     let mut check = Validation::new(&store);
-    check.selects_named("selected.ogh", &[LOBBY], &names(&["seats"]));
+    check.selects_named("selected.masque", &[LOBBY], &names(&["seats"]));
     assert!(!check.finish().refuses());
 }
 
@@ -539,7 +539,7 @@ fn a_named_selection_reports_a_field_two_scopes_provide() {
         .expect("the pause scope");
     let mut check = Validation::new(&store);
     check.selects_named(
-        "pause.ogh",
+        "pause.masque",
         &[Scope::Node("pause"), FRONT],
         &names(&["heading"]),
     );
@@ -555,7 +555,7 @@ fn a_named_selection_reports_a_field_two_scopes_provide() {
 
     // And naming the scope settles it: one scope, one provider, no report.
     let mut check = Validation::new(&store);
-    check.selects_named("pause.ogh", &[Scope::Node("pause")], &names(&["heading"]));
+    check.selects_named("pause.masque", &[Scope::Node("pause")], &names(&["heading"]));
     assert!(
         !check
             .finish()

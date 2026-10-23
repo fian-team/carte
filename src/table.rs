@@ -48,7 +48,7 @@ pub enum Tier {
         /// variant: everything the instance tier answers — the enclosing
         /// instance, the area, the boundary a crossing is read out of —
         /// is true of a supplied root exactly as it is of a named one,
-        /// and the only difference is who calls `Ogham::watch`. A
+        /// and the only difference is who calls `Masque::watch`. A
         /// variant would have made every one of those questions a
         /// two-armed match, and the first arm somebody forgot would be
         /// a root that silently stopped being an instance.
@@ -243,7 +243,7 @@ impl RouteTable {
     /// runtime, or kept ownership and got no instance at all — no area,
     /// no enclosing instance, and a boundary the crossing read as a cut.
     /// Every game with a host-owned workspace was stuck there, and
-    /// untold_lore has three, whose trees are another crate's `Ogham`
+    /// untold_lore has three, whose trees are another crate's `Masque`
     /// with forty handlers registered at construction.
     ///
     /// This is the same tier, with the mount left to the host. Everything
@@ -654,8 +654,8 @@ mod tests {
             .under("pause", "lobby")
             .under("pause", "arena");
         t.structural("session")
-            .mounts("lobby", "data/ui/lobby.ogh")
-            .mounts("arena", "data/ui/arena.ogh");
+            .mounts("lobby", "data/ui/lobby.masque")
+            .mounts("arena", "data/ui/arena.masque");
         t
     }
 
@@ -669,10 +669,10 @@ mod tests {
             .at_root("roster")
             .at_root("world")
             .at_root("library");
-        t.mounts("title", "data/ui/title.ogh")
-            .mounts("roster", "data/ui/roster.ogh")
-            .mounts("world", "data/ui/world.ogh")
-            .mounts("library", "data/ui/library.ogh");
+        t.mounts("title", "data/ui/title.masque")
+            .mounts("roster", "data/ui/roster.masque")
+            .mounts("world", "data/ui/world.masque")
+            .mounts("library", "data/ui/library.masque");
         t.default_area("menu")
             .in_area("roster", "world")
             .in_area("world", "world")
@@ -688,7 +688,7 @@ mod tests {
         assert_eq!(
             t.tier_of("lobby"),
             Tier::InstanceRoot {
-                document: Some("data/ui/lobby.ogh")
+                document: Some("data/ui/lobby.masque")
             }
         );
         assert_eq!(
@@ -696,7 +696,7 @@ mod tests {
             Tier::View,
             "undeclared is the common case"
         );
-        assert_eq!(t.document_of("arena"), Some("data/ui/arena.ogh"));
+        assert_eq!(t.document_of("arena"), Some("data/ui/arena.masque"));
         assert_eq!(t.document_of("session"), None, "structural mounts nothing");
         assert_eq!(t.document_of("pause"), None);
     }
@@ -754,7 +754,7 @@ mod tests {
         t.at_root("title")
             .at_root("library")
             .under("map", "library");
-        t.mounts("title", "data/ui/title.ogh")
+        t.mounts("title", "data/ui/title.masque")
             .mounts_supplied("library");
         t.in_area("title", "menu")
             .in_area("library", "library")
@@ -784,7 +784,7 @@ mod tests {
         let mut t = RouteTable::new();
         t.at_root("library")
             .mounts_supplied("library")
-            .mounts("library", "data/ui/library.ogh");
+            .mounts("library", "data/ui/library.masque");
         assert_eq!(
             t.validate(),
             Err(TableError::Redeclared {
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn areas_without_a_chosen_catch_all_fail_at_startup() {
         let mut t = RouteTable::new();
-        t.at_root("world").mounts("world", "data/ui/world.ogh");
+        t.at_root("world").mounts("world", "data/ui/world.masque");
         t.in_area("world", "world");
         assert_eq!(t.validate(), Err(TableError::NoDefaultArea));
     }
@@ -876,7 +876,7 @@ mod tests {
         // The typo protection `under` already has, applied to tiers: a
         // misspelt id must not quietly become a node.
         let mut t = RouteTable::new();
-        t.at_root("title").mounts("titel", "data/ui/title.ogh");
+        t.at_root("title").mounts("titel", "data/ui/title.masque");
         assert_eq!(
             t.validate(),
             Err(TableError::AttributeOnUnknown {
@@ -891,7 +891,7 @@ mod tests {
         let mut t = RouteTable::new();
         t.at_root("session")
             .structural("session")
-            .mounts("session", "data/ui/session.ogh");
+            .mounts("session", "data/ui/session.masque");
         assert_eq!(
             t.validate(),
             Err(TableError::Redeclared {

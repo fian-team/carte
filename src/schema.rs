@@ -6,7 +6,7 @@
 //! a Rust type at all, so what its selection validates against is this —
 //! a [`Kind`] tree derived from the struct, never hand-maintained. That is
 //! the whole of §4.3: the struct *is* the schema, so the triple-list
-//! (struct ↔ `.ogh` ↔ projection) and the guard test that policed it are
+//! (struct ↔ `.masque` ↔ projection) and the guard test that policed it are
 //! unrepresentable rather than merely guarded.
 //!
 //! # The vocabulary, and what it is not
@@ -462,7 +462,7 @@ impl Schema for bool {
     }
 }
 
-/// `impl Schema` for the integer widths. Ogham's value model has one
+/// `impl Schema` for the integer widths. Masque's value model has one
 /// integer type, so the Rust widths collapse to one kind exactly as they do
 /// in `editable`. A float literal is refused rather than truncated: a
 /// declared `2.5` in an integer field has a right answer nobody can name.

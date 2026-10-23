@@ -99,6 +99,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "carte"
+version = "0.1.0"
+
+[[package]]
 name = "cc"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -599,6 +603,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "masque"
+version = "0.1.0"
+dependencies = [
+ "downcast-rs",
+ "lodepng",
+ "nalgebra-glm",
+ "notify",
+ "skia-safe",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -683,8 +700,8 @@ dependencies = [
 name = "notes-stage"
 version = "0.0.0"
 dependencies = [
- "ogham",
- "structure",
+ "carte",
+ "masque",
 ]
 
 [[package]]
@@ -752,19 +769,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "ogham"
-version = "0.1.0"
-dependencies = [
- "downcast-rs",
- "lodepng",
- "nalgebra-glm",
- "notify",
- "skia-safe",
- "tokio",
- "tower-lsp",
 ]
 
 [[package]]
@@ -1101,10 +1105,6 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
-
-[[package]]
-name = "structure"
-version = "0.1.0"
 
 [[package]]
 name = "syn"

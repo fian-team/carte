@@ -1,5 +1,5 @@
-//! The stage's `extern "C"` surface, for emscripten's `cwrap`: Ogham's
-//! own stage's (`ogham/web/src/main.rs`), with the app in place of a
+//! The stage's `extern "C"` surface, for emscripten's `cwrap`: Masque's
+//! own stage's (`masque/web/src/main.rs`), with the app in place of a
 //! source to build, and a snapshot of what Carte sees.
 //!
 //! One stage per module instance. Strings come out through

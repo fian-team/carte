@@ -1,4 +1,4 @@
-//! A notes app on `structure`, drawn with egui.
+//! A notes app on `carte`, drawn with egui.
 //!
 //! ```text
 //! cargo run --example notes
@@ -31,8 +31,8 @@
 //! The panel on the right shows the router and the store as they run.
 
 use eframe::egui;
-use structure::schema::{reflect_of, Field, Kind, Lit, Schema};
-use structure::{
+use carte::schema::{reflect_of, Field, Kind, Lit, Schema};
+use carte::{
     set, Barrier, Departure, Escape, EscapeOutcome, Node, Occlusion, Outbox, Producer, Refusal,
     RouteId, RouteTable, Router, Scope, Store, SubscriberId,
 };
@@ -245,7 +245,7 @@ struct Producers {
 }
 
 impl Producers {
-    fn new(store: &mut Store) -> Result<Self, structure::StoreError> {
+    fn new(store: &mut Store) -> Result<Self, carte::StoreError> {
         Ok(Self {
             library: store.producer(Scope::Process, &["notes", "trashed"])?,
             prefs: store.producer(Scope::Process, &["dark"])?,

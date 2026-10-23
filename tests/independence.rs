@@ -1,21 +1,21 @@
 //! The router depends on nothing: no runtime dependency of any kind, and
-//! never Ogham, in any table.
+//! never Masque, in any table.
 //!
 //! An empty `[dependencies]` is the guarantee that a consumer can put any
 //! UI layer on top of this crate. Dev-dependencies are allowed — the
-//! examples need a UI toolkit to drive — but not Ogham's side of the
+//! examples need a UI toolkit to drive — but not Masque's side of the
 //! stack, because an example that needed it would prove the opposite of
 //! what the examples are for.
 
 /// Tables that ship with the library, and so must stay empty.
 const SHIPPED: &[&str] = &["[dependencies]", "[build-dependencies]"];
 
-/// Packages no table may name: Ogham, and the crates that bind it to this
+/// Packages no table may name: Masque, and the crates that bind it to this
 /// one.
-const FORBIDDEN: &[&str] = &["ogham", "contract", "driver"];
+const FORBIDDEN: &[&str] = &["masque", "contract", "driver"];
 
 #[test]
-fn the_library_depends_on_nothing_and_never_on_ogham() {
+fn the_library_depends_on_nothing_and_never_on_masque() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let manifest = std::fs::read_to_string(&path).expect("Cargo.toml");
     let mut table = String::new();
@@ -34,7 +34,7 @@ fn the_library_depends_on_nothing_and_never_on_ogham() {
         );
         assert!(
             !FORBIDDEN.contains(&key),
-            "{table} declares `{key}`: the router must not depend on Ogham"
+            "{table} declares `{key}`: the router must not depend on Masque"
         );
     }
 }

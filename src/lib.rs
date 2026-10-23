@@ -1,11 +1,11 @@
-//! The structure framework's routing half: the table (tiers, areas,
+//! Carte's routing half: the table (tiers, areas,
 //! occlusion, guards), the walk, depth arbitration, escape, departure,
 //! and the outbox.
 //!
-//! Extracted from `ogham/src/route` per `APPLICATION.md` §2, whose
-//! engineering guarantee this crate carries: **the structure framework
+//! Extracted from `masque/src/route` per `APPLICATION.md` §2, whose
+//! engineering guarantee this crate carries: **Carte
 //! depends on nothing of the surface framework**, and the empty
-//! `[dependencies]` section is the proof — `cargo tree -p structure`
+//! `[dependencies]` section is the proof — `cargo tree -p carte`
 //! shows nothing at all.
 //!
 //! What did not move stays behind in `driver::route` (in lorekeeper) as scaffolding,

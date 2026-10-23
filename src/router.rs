@@ -51,7 +51,7 @@
 //! needs and nothing that names a surface type. Two dispatches are *not*
 //! here, deliberately: platform-event arbitration and drawing, whose
 //! signatures carry surface types. Until P4 moves them into the driver,
-//! they live in `ogham::route`'s wrapper, built from [`Router::get_mut`]
+//! they live in `driver::route` (in lorekeeper)'s wrapper, built from [`Router::get_mut`]
 //! and [`Router::pop_at`].
 
 use std::collections::BTreeMap;
@@ -65,7 +65,7 @@ use crate::{Departure, Escape, Occlusion, Outbox, Refusal, RouteId};
 /// needs from a route, and nothing that names a surface type.
 ///
 /// A scaffolding seam rather than the final contract. Today the one
-/// implementor is `ogham::route`'s bridge over `dyn Route`, whose
+/// implementor is `driver::route` (in lorekeeper)'s bridge over `dyn Route`, whose
 /// surface-coupled remainder (`event`'s widget payload, `draw`'s canvas,
 /// `read_state`, `own_ui`) stays on the surface side; those methods
 /// retire in P2/P4 (`APPLICATION_BUILD.md` WP-2.2, WP-4.1, WP-4.2), at

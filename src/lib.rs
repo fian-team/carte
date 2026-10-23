@@ -8,7 +8,7 @@
 //! `[dependencies]` section is the proof — `cargo tree -p structure`
 //! shows nothing at all.
 //!
-//! What did not move stays behind in `ogham::route` as scaffolding,
+//! What did not move stays behind in `driver::route` (in lorekeeper) as scaffolding,
 //! because its signatures name surface types: the `Route` trait
 //! (`read_state`'s values, `own_ui`'s instance), `RouteEvent` (a widget
 //! event rides in it), `Chrome`, and the router's `event`/`draw`

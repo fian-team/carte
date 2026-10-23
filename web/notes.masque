@@ -1,0 +1,306 @@
+// The notes example's five screens, drawn by Masque.
+//
+// The document never navigates: the host sets the route path from the
+// router's visible views, and `outlet()` draws those screens. Everything
+// a screen shows is what the store committed, and everything it does is
+// an `event(...)` the host turns into an action, an Escape, or a question
+// for a guard.
+
+let rgb = fn (r: int, g: int, b: int) { { r: r, g: g, b: b, a: 255 } };
+let rgba = fn (r: int, g: int, b: int, a: int) { { r: r, g: g, b: b, a: a } };
+let springy = { stiffness: 260, damping: 24 };
+
+// Carte's survey paper and chart blue, and its contour sienna.
+let day = {
+  bg: rgb(255, 255, 255), sunken: rgb(246, 242, 231), line: rgb(222, 224, 228),
+  text: rgb(19, 35, 58), muted: rgb(86, 98, 122), accent: rgb(29, 90, 166),
+  on_accent: rgb(255, 255, 255), sienna: rgb(164, 88, 43), scrim: rgba(246, 242, 231, 200),
+};
+let night = {
+  bg: rgb(22, 36, 58), sunken: rgb(17, 29, 47), line: rgb(44, 60, 84),
+  text: rgb(231, 237, 246), muted: rgb(154, 168, 189), accent: rgb(110, 162, 240),
+  on_accent: rgb(11, 19, 32), sienna: rgb(224, 154, 102), scrim: rgba(11, 19, 32, 190),
+};
+let palette = fn () { match dark { true => night, false => day } };
+
+let label = fn (text: string, size: int, color: map) {
+  Text { text: text, style: { size: size, color: color } }
+};
+
+// `tone` is "plain", "primary" or "danger". A disabled button still
+// presses: the trash's asks the router, which says why not.
+let button = fn (text: string, tone: string, enabled: bool, press: function) {
+  let c = palette();
+  let primary = match enabled { true => tone == "primary", false => false };
+  let ink = match enabled {
+    true => match tone { "primary" => c.on_accent, "danger" => c.sienna, _ => c.text },
+    false => c.muted,
+  };
+  Flex {
+    mouse_down: press,
+    style: {
+      padding: { top: 6, right: 11, bottom: 6, left: 11 },
+      corner_radius: 8,
+      cursor: match enabled { true => "pointer", false => "default" },
+      background_color: match primary { true => c.accent, false => c.bg },
+      border: {
+        width: 1,
+        color: match tone { "primary" => c.accent, "danger" => c.sienna, _ => c.line },
+        style: match enabled { true => "solid", false => "dashed" },
+      },
+      transition: { background_color: springy },
+    },
+    hover_style: { background_color: match primary { true => c.accent, false => c.sunken } },
+    children: [ label(text, 13, ink) ],
+  }
+};
+
+let back = fn () {
+  let c = palette();
+  Flex {
+    mouse_down: fn () { event("back"); },
+    style: {
+      width: 30, height: 30, corner_radius: 8,
+      main_alignment: "center", cross_alignment: "center", cursor: "pointer",
+    },
+    hover_style: { background_color: c.sunken },
+    children: [ label("←", 17, c.muted) ],
+  }
+};
+
+let bar = fn (children: array) {
+  let c = palette();
+  Flex {
+    style: {
+      width: "grow", height: 52, gap: 8,
+      padding: { top: 0, right: 12, bottom: 0, left: 12 },
+      cross_alignment: "center",
+      border: { width: 1, color: c.line },
+    },
+    children: children,
+  }
+};
+
+let heading = fn (text: string) {
+  let c = palette();
+  Text { text: text, style: { width: "grow", size: 16, weight: "bold", color: c.text } }
+};
+
+// Every screen fills the outlet and slides in when it joins the path.
+let screen_box = fn (key: string, children: array) {
+  let c = palette();
+  Flex {
+    key: key,
+    initial: { opacity: 0, transform: { translate_x: 14 } },
+    style: {
+      width: "grow", height: "grow", direction: "column",
+      background_color: c.bg,
+      transition: { opacity: "spring", transform: springy, background_color: springy },
+    },
+    children: children,
+  }
+};
+
+// --- home ------------------------------------------------------------------
+
+let note_row = fn (row: map) {
+  let c = palette();
+  Flex {
+    key: "note-" + row.index,
+    style: { width: "grow", corner_radius: 8, cross_alignment: "center" },
+    hover_style: { background_color: c.sunken },
+    children: [
+      Flex {
+        mouse_down: fn () { event("open", row.index); },
+        style: { width: "grow", padding: { top: 10, right: 10, bottom: 10, left: 10 }, cursor: "pointer" },
+        children: [ Text { text: row.title, style: { width: "grow", size: 14, color: c.text } } ],
+      },
+      Flex {
+        mouse_down: fn () { event("trash", row.index); },
+        style: {
+          width: 28, height: 28, margin: { top: 0, right: 6, bottom: 0, left: 0 },
+          corner_radius: 6, main_alignment: "center", cross_alignment: "center", cursor: "pointer",
+        },
+        hover_style: { background_color: c.line },
+        children: [ label("×", 17, c.muted) ],
+      },
+    ],
+  }
+};
+
+let home_view = fn () {
+  let c = palette();
+  let count = trashed.length();
+  screen_box("home", [
+    bar([
+      heading("Notes"),
+      button("New", "plain", true, fn () { event("new_note"); }),
+      button("Settings", "plain", true, fn () { event("open_settings"); }),
+    ]),
+    Flex {
+      style: { width: "grow", height: "grow", direction: "column", padding: 6, gap: 2, overflow: "scroll" },
+      children: [
+        ...for (i in 0..notes.length()) { note_row(notes[i]) },
+        match notes.length() {
+          0 => Text { text: "No notes.", style: { size: 13, color: c.muted } },
+          _ => {},
+        },
+      ],
+    },
+    bar([
+      button(match count { 0 => "Trash", _ => "Trash (" + count + ")" }, "plain", trash_open,
+        fn () { event("open_trash"); }),
+      Text { text: refusal, style: { width: "grow", size: 13, color: c.sienna } },
+    ]),
+  ])
+};
+
+// --- note ------------------------------------------------------------------
+
+let note_view = fn () {
+  let c = palette();
+  screen_box("note", [
+    bar([
+      back(),
+      heading(title),
+      match dirty { true => label("edited", 12, c.sienna), false => {} },
+      button("Settings", "plain", true, fn () { event("note_settings"); }),
+    ]),
+    TextInput {
+      value: body,
+      multiline: true,
+      placeholder: "Write something.",
+      on_change: fn (text: string) { event("edit", text); },
+      style: {
+        width: "grow", height: "grow",
+        padding: { top: 14, right: 16, bottom: 14, left: 16 },
+        size: 15, color: c.text,
+      },
+    },
+    bar([
+      Text { text: words + " words", style: { width: "grow", size: 12, color: c.muted } },
+      button("Save", "primary", dirty, fn () { event("save"); }),
+    ]),
+  ])
+};
+
+// --- discard: a prompt that occludes nothing, so the note stays under it --
+
+let discard_view = fn () {
+  let c = palette();
+  Flex {
+    key: "discard",
+    initial: { opacity: 0 },
+    style: {
+      width: "grow", height: "grow", padding: 20,
+      main_alignment: "center", cross_alignment: "center",
+      background_color: c.scrim,
+      transition: { opacity: "spring" },
+    },
+    children: [
+      Flex {
+        initial: { transform: { scale: 0.94 } },
+        style: {
+          direction: "column", gap: 6, padding: 16, corner_radius: 12,
+          background_color: c.bg,
+          border: { width: 1, color: c.line },
+          shadow: { blur: 24, offset_x: 0, offset_y: 10, color: rgba(15, 35, 70, 60) },
+          transform: { scale: 1 },
+          transition: { transform: springy },
+        },
+        children: [
+          Text { text: "Discard changes?", style: { size: 15, weight: "bold", color: c.text } },
+          label("This note has unsaved changes.", 13, c.muted),
+          Flex {
+            style: { gap: 6, margin: { top: 10, right: 0, bottom: 0, left: 0 } },
+            children: [
+              button("Keep editing", "plain", true, fn () { event("back"); }),
+              button("Save", "primary", true, fn () { event("save_and_close"); }),
+              button("Discard", "danger", true, fn () { event("close"); }),
+            ],
+          },
+        ],
+      },
+    ],
+  }
+};
+
+// --- settings: under home and under note -----------------------------------
+
+let toggle = fn (on: bool) {
+  let c = palette();
+  Flex {
+    style: {
+      width: 36, height: 20, corner_radius: 10, padding: 2,
+      main_alignment: match on { true => "end", false => "start" },
+      background_color: match on { true => c.accent, false => c.line },
+      transition: { background_color: springy },
+    },
+    children: [
+      Flex { style: { width: 16, height: 16, corner_radius: 8, background_color: c.bg }, children: [] },
+    ],
+  }
+};
+
+let settings_view = fn () {
+  let c = palette();
+  screen_box("settings", [
+    bar([ back(), heading("Settings") ]),
+    Flex {
+      mouse_down: fn () { event("set_dark", !dark); },
+      style: {
+        width: "grow", padding: 14, gap: 10, cross_alignment: "center", cursor: "pointer",
+        border: { width: 1, color: c.line },
+      },
+      children: [
+        Text { text: "Dark mode", style: { width: "grow", size: 14, color: c.text } },
+        toggle(dark),
+      ],
+    },
+    Flex {
+      style: { width: "grow", padding: 14 },
+      children: [
+        Text {
+          text: match from_note {
+            true => "Opened from a note. The note is still on the path, so its draft is waiting.",
+            false => "Opened from the list.",
+          },
+          style: { width: "grow", size: 13, color: c.muted },
+        },
+      ],
+    },
+  ])
+};
+
+// --- trash: guarded, refused while empty -----------------------------------
+
+let trash_row = fn (row: map) {
+  let c = palette();
+  Flex {
+    key: "trashed-" + row.index,
+    style: { width: "grow", gap: 6, padding: { top: 6, right: 8, bottom: 6, left: 10 }, cross_alignment: "center" },
+    children: [
+      Text { text: row.title, style: { width: "grow", size: 14, color: c.text } },
+      button("Restore", "plain", true, fn () { event("restore", row.index); }),
+      button("Delete", "danger", true, fn () { event("purge", row.index); }),
+    ],
+  }
+};
+
+let trash_view = fn () {
+  screen_box("trash", [
+    bar([ back(), heading("Trash") ]),
+    Flex {
+      style: { width: "grow", height: "grow", direction: "column", padding: 6, gap: 2, overflow: "scroll" },
+      children: for (i in 0..trashed.length()) { trash_row(trashed[i]) },
+    },
+  ])
+};
+
+screen "home" { view home_view() };
+screen "note" { view note_view() };
+screen "discard" { view discard_view() };
+screen "settings" { view settings_view() };
+screen "trash" { view trash_view() };
+
+let main = fn () { outlet() };

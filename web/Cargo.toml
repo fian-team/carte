@@ -1,0 +1,35 @@
+# The browser stage for the notes example: the real router and store under
+# a Masque document, compiled to WebAssembly for the website's hero.
+#
+# Its own workspace, and nothing in the crate above names it: `structure`
+# depends on nothing (tests/independence.rs), and this is what keeps the
+# Masque half of the demo out of that guarantee.
+[package]
+name = "notes-stage"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "The notes example on structure, drawn by Ogham, behind a C-shaped API for emscripten"
+
+[lib]
+name = "notes_stage"
+path = "src/lib.rs"
+
+# The emscripten build of this binary is the stage (`build.sh`). Natively
+# it does nothing; the library's tests are the native half.
+[[bin]]
+name = "notes_stage"
+path = "src/main.rs"
+
+[dependencies]
+structure = { path = ".." }
+ogham = { path = "../../ogham" }
+
+[workspace]
+
+# Size over compile time, as Ogham's own stage builds.
+[profile.stage]
+inherits = "release"
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -36,7 +36,7 @@
 //! the panel row that grays itself.
 //!
 //! The router does not hold the store — the binding does
-//! (`APPLICATION_BUILD.md` WP-4.1, §6.1: one binding, one store, one
+//! (`APPLICATION_BUILD.md` WP-4.1, Masque's §6.1: one binding, one store, one
 //! instance per active root). It arrives as an argument to
 //! [`resolve`](Router::resolve) and [`ask`](Router::ask) instead, which is
 //! what keeps [`Store::mount`] and [`Store::unmount`] crate-private with
@@ -97,7 +97,7 @@ pub trait Node<Cx, A> {
 
     /// What this node hides beneath it. See [`Occlusion`].
     ///
-    /// The fallback half of §6.2 (occlusion is node data): where the
+    /// The fallback half of Masque's §6.2 (occlusion is node data): where the
     /// table declares the node's occlusion this is never called, and
     /// the method survives only for consumers whose tables do not
     /// declare yet. It retires with the P4 driver.
@@ -411,7 +411,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
     /// The ids whose *screens* render this frame, outermost first.
     ///
     /// A route declaring [`Occlusion::None`] leaves its ancestors' screens
-    /// up — which is what the exit prompts want (`APPLICATION.md` §6.7): before
+    /// up — which is what the exit prompts want (Masque's `APPLICATION.md` §6.7): before
     /// the outlet stacked, exactly one widget tree drew, so the card took
     /// the tree from the editor it sat over.
     pub fn visible_views(&self) -> Vec<RouteId> {
@@ -434,7 +434,7 @@ impl<Cx, A, R: Node<Cx, A> + ?Sized> Router<Cx, A, R> {
     }
 
     /// One node's occlusion: the table's declaration where there is one
-    /// (§6.2 — occlusion is node data, so the arithmetic reads the
+    /// (Masque's §6.2 — occlusion is node data, so the arithmetic reads the
     /// table first), else the node's `occludes()` method, which is the
     /// seam un-migrated consumers still answer through. An id with no
     /// handler is unreachable past [`Router::new`]'s check and answers
@@ -551,7 +551,7 @@ mod tests {
 
     /// A router and the store a binding hands it, paired.
     ///
-    /// The store left the router in WP-4.1 (§6.1: the binding owns the one
+    /// The store left the router in WP-4.1 (Masque's §6.1: the binding owns the one
     /// store), so the walk's own tests stand the pair up the way the
     /// binding does rather than reaching for a field that is no longer
     /// there. Every method here is one line of the binding's frame.
@@ -623,7 +623,7 @@ mod tests {
         )
     }
 
-    /// The exit-prompt shape §6.2 exists for: the prompt's method still
+    /// The exit-prompt shape Masque's §6.2 exists for: the prompt's method still
     /// answers the old default, the table declares `Occlusion::None`,
     /// and the declaration wins — the workspace's screen stays up
     /// beneath the prompt, with no route object consulted about it.

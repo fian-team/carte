@@ -436,7 +436,7 @@ impl Store {
     /// A store over one route table's nodes: the scope keys it will accept
     /// are exactly the ids that table registers.
     ///
-    /// This is how a binding builds the one store (§6.1) — the store is the
+    /// This is how a binding builds the one store (Masque's §6.1) — the store is the
     /// binding's, and the walk is handed it every frame. Without the table
     /// a scope keyed on a misspelt id would simply never mount, and the
     /// empty screen would be the diagnostic.

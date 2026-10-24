@@ -1,4 +1,4 @@
-# Carte, the structure framework (APPLICATION.md §8.4 records the name).
+# Carte, the structure framework (docs/APPLICATION.md §1 records the name).
 # Not published yet.
 [package]
 name = "carte"

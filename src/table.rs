@@ -38,7 +38,7 @@ pub enum Tier {
     /// Mounts its own document; crossing into one is teardown/mount with
     /// a marked passage. The document is table data rather than a
     /// route's answer because the binding mounts what the table names
-    /// (§6.1) — no host hand-mounts a second document.
+    /// (Masque's §6.1) — no host hand-mounts a second document.
     InstanceRoot {
         /// The document the binding mounts for this instance, or `None`
         /// when the **host** stands it up and hands it over
@@ -307,7 +307,7 @@ impl RouteTable {
 
     /// Declare what `id` hides beneath it, as node data.
     ///
-    /// The successor to the `occludes()` method (§6.2: occlusion is
+    /// The successor to the `occludes()` method (Masque's §6.2: occlusion is
     /// mount/node data): the walk's arithmetic reads this where
     /// declared and asks the node only where it is not, so an
     /// un-migrated consumer keeps its behavior without a table edit.
@@ -391,7 +391,7 @@ impl RouteTable {
     }
 
     /// The document `id` mounts, iff it is an instance root. What the
-    /// binding mounts (§6.1) — table data, so it is answerable before
+    /// binding mounts (Masque's §6.1) — table data, so it is answerable before
     /// any route object exists, which is when mounting happens.
     /// **Not** the question "is `id` an instance root?" — a supplied
     /// root is one and answers `None` here. That question is
@@ -451,7 +451,7 @@ impl RouteTable {
 
     /// What `id` hides beneath it: its declared occlusion, or the
     /// [`Occlusion::View`] every consumer already defaults to. Node
-    /// data (§6.2), answerable with no route object.
+    /// data (Masque's §6.2), answerable with no route object.
     pub fn occlusion_of(&self, id: RouteId) -> Occlusion {
         self.occlusions.get(&id).copied().unwrap_or_default()
     }

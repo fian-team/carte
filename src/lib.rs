@@ -39,8 +39,10 @@
 //! repo's shipped documents at `cargo test` time lives on the surface side
 //! of the seam, where the parser does.
 //!
-//! `APPLICATION.md` §3 is the record of the routing axioms cited throughout,
-//! and the document as a whole is the record of the split.
+//! `docs/APPLICATION.md` is the record of the rules cited throughout: §3's
+//! routing axioms, §4's contract and §5's store. Masque's
+//! `docs/internal/APPLICATION.md` is the record of the split and of the
+//! binding (§6), and a citation into it says "Masque's".
 
 pub mod guard;
 pub mod intent;
@@ -199,7 +201,7 @@ impl Handled {
 /// Ordered, and `Surface` implies `View`. That it is one ladder rather than
 /// two independent bits is an *empirical* claim about the three consumers,
 /// not a simplification: nothing in any of them wants an ancestor's 3D
-/// hidden while its HUD still draws. `APPLICATION.md` §6.6 is the record, and
+/// hidden while its HUD still draws. Masque's `APPLICATION.md` §6.6 is the record, and
 /// this is the line to attack first if that turns out wrong.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Occlusion {
